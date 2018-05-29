@@ -2,7 +2,7 @@ import os
 from functools import reduce
 
 import numpy as np
-from tensorflow.contrib.keras.python.keras.preprocessing.sequence import pad_sequences
+from tensorflow.contrib.keras.api.keras.preprocessing.sequence import pad_sequences
 from tensorflow.python.platform import gfile
 from tensorflow.python.platform.gfile import FastGFile
 

@@ -111,9 +111,9 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
         self.step = tf.Variable(0, name="global_step", trainable=False)
         batch_size = self.args.batch_size
         epochs = self.args.num_epoches
-        self.get_train_op()
+        self.get_train_op() # get the optimizer op
         self.sess.run(tf.global_variables_initializer())
-        self.load_weight()
+        self.load_weight() # load the trained model
 
         # early stopping params, by default val_acc is the metric
         self.patience, self.best_val_acc = self.args.patience, 0.
@@ -196,11 +196,11 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
 
     def load_weight(self):
         ckpt = tf.train.get_checkpoint_state(self.args.weight_path)
-        if ckpt is not None:
+        if ckpt is not None and ckpt.model_checkpoint_path.startswith(self.__class__.__name__):
             logger("Load models from {}.".format(ckpt.model_checkpoint_path))
             self.saver.restore(self.sess, ckpt.model_checkpoint_path)
         else:
-            logger("No previous models.")
+            logger("No previous models. model :%s" % self.__class__.__name__)
 
     def test(self):
         if not self.args.train:

@@ -2,7 +2,8 @@ import json
 import os
 
 import numpy as np
-from tensorflow.contrib.keras.python.keras.preprocessing.sequence import pad_sequences
+from tensorflow.contrib.keras.api.keras.preprocessing.sequence import pad_sequences
+
 from tensorflow.python.platform import gfile
 
 from dataset.rc_dataset import RCDataset

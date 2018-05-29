@@ -75,9 +75,9 @@ class AttentionSumReader(RcBase):
             d_encoded_btf = tf.concat(outputs, axis=-1)
             logger("d_encoded_btf shape {}".format(d_encoded_btf.get_shape()))
 
-        def att_dot(x):
+        def att_dot(x): # attention
             """attention dot product function"""
-            d_btf, q_bf = x
+            d_btf, q_bf = x #  (None, max_d_length, hidden_size * 2) & (None, hidden_size * 2, 1)
             res = tf.matmul(tf.expand_dims(q_bf, -1), d_btf, adjoint_a=True, adjoint_b=True)
             return tf.reshape(res, [-1, self.d_len])
 
