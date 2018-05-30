@@ -133,7 +133,7 @@ class NLPBase(object):
 
         group3.add_argument("--grad_clipping", default=10, type=int, help="the threshold value of gradient clip")
 
-        group3.add_argument("--lr", default=0.005, type=float, help="learning rate")
+        group3.add_argument("--lr", default=0.01, type=float, help="learning rate")
 
         group3.add_argument("--keep_prob", default=0.9, type=float, help="dropout,percentage to keep during training")
 
