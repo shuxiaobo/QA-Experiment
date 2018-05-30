@@ -19,7 +19,6 @@ class NLPBase(object):
         self.model_name = self.__class__.__name__
         config = tf.ConfigProto()
         config.gpu_options.per_process_gpu_memory_fraction = 0.6
-        config.gpu_options
         self.sess = tf.Session(config = config)
         # get arguments
         self.args = self.get_args()
@@ -130,11 +129,11 @@ class NLPBase(object):
 
         group3.add_argument("--embedding_dim", default=200, type=int, help="dimension of word embeddings")
 
-        group3.add_argument("--hidden_size", default=100, type=int, help="RNN hidden size")
+        group3.add_argument("--hidden_size", default=128, type=int, help="RNN hidden size")
 
         group3.add_argument("--grad_clipping", default=10, type=int, help="the threshold value of gradient clip")
 
-        group3.add_argument("--lr", default=0.01, type=float, help="learning rate")
+        group3.add_argument("--lr", default=0.005, type=float, help="learning rate")
 
         group3.add_argument("--keep_prob", default=0.9, type=float, help="dropout,percentage to keep during training")
 
@@ -145,7 +144,7 @@ class NLPBase(object):
         group3.add_argument("--use_lstm", default=False, type=str2bool,
                             help="RNN kind, if False, use GRU else LSTM")
 
-        group3.add_argument("--batch_size", default=64, type=int, help="batch_size")
+        group3.add_argument("--batch_size", default=128, type=int, help="batch_size")
 
         group3.add_argument("--optimizer", default="ADAM", choices=["SGD", "ADAM"],
                             help="optimize algorithms, SGD or Adam")

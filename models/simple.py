@@ -63,18 +63,18 @@ class Simple_model(RcBase):
                 cells = [DropoutWrapper(cell(hidden_size), output_keep_prob = self.args.keep_prob) for _ in range(num_layers)])
 
             d_rnn_out, last_states = tf.nn.bidirectional_dynamic_rnn(cell_bw = d_rnn_b, cell_fw = d_rnn_f, inputs = d_embed,
-                                                                     sequence_length = d_real_len, swap_memory = True,dtype="float32",)
+                                                                     sequence_length = d_real_len, swap_memory = True, dtype = "float32", )
 
             d_emb_bi = tf.concat(d_rnn_out, axis = -1)
             logger("d_encoded_bf shape {}".format(d_emb_bi.get_shape()))
 
-        def atten(x):
-            """
-            :param x: is a tuple which contain shape (None, max_time, hidden_size) (None, hidden_size)
-            :return:
-            """
-            atten = tf.matmul(d_emb_bi, tf.expand_dims(x, -1), adjoint_a = False, adjoint_b = False)
-            return tf.reshape(atten, [-1, self.d_len])
+        # def atten(x):
+        #     """
+        #     :param x: is a tuple which contain shape (None, max_time, hidden_size) (None, hidden_size)
+        #     :return:
+        #     """
+        #     atten = tf.matmul(d_emb_bi, tf.expand_dims(x, -1), adjoint_a = False, adjoint_b = False)
+        #     return tf.reshape(atten, [-1, self.d_len])
 
         with tf.variable_scope('attention_dq'):
             atten_d_q = tf.matmul(d_emb_bi, q_emb_bi, adjoint_b = True)
@@ -94,10 +94,15 @@ class Simple_model(RcBase):
         with tf.variable_scope('candidate'):
             candi_embed = tf.nn.embedding_lookup(params = embedding_matrix, ids = candidate_idxs)
             # [None, can_len, 1]
-            candi_score_d = tf.matmul(candi_embed, attened_d, transpose_b = True)
+            # candi_score_d = tf.matmul(candi_embed, attened_d, transpose_b = True)
+            can_w_qd = tf.get_variable(name = 'can_w_qd', dtype = tf.float32, shape = [self.args.hidden_size * 2, self.args.embedding_dim])
+            sha = attened_d.get_shape()
+            candi_score_d = tf.matmul(candi_embed,
+                tf.reshape(tf.matmul(tf.reshape(attened_d, [-1, attened_d.get_shape()[-1]]), can_w_qd),
+                           [-1, sha[1], self.args.embedding_dim]), transpose_b = True)
             candi_score = tf.reduce_mean(candi_score_d, axis = -1)
             candi_score_sfm = tf.nn.softmax(logits = candi_score, name = 'candi_score_sfm', dim = -1)
 
         self.loss = tf.reduce_mean(-tf.reduce_sum(y_true_idx * tf.log(candi_score_sfm), axis = -1))
-        self.correct_prediction = tf.reduce_sum(tf.sign(tf.cast(tf.equal(tf.argmax(y_true_idx, 1), tf.argmax(candi_score_sfm, 1)), 'float')))
-
+        self.correct_prediction = tf.reduce_sum(
+            tf.sign(tf.cast(tf.equal(tf.argmax(y_true_idx, 1), tf.argmax(candi_score_sfm, 1)), 'float')))
