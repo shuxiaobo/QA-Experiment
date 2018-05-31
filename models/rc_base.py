@@ -48,11 +48,17 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
             raise NotImplementedError("Other Optimizer Not Implemented.-_-||")
 
         # gradient clip
-        grad_vars = optimizer.compute_gradients(self.loss)
-        grad_vars = [
-            (tf.clip_by_norm(grad, self.args.grad_clipping), var)
-            if grad is not None else (grad, var)
-            for grad, var in grad_vars]
+        with tf.name_scope('grad_clip'):
+            grad_vars = optimizer.compute_gradients(self.loss)
+            grad_vars = [
+                (tf.clip_by_norm(grad, self.args.grad_clipping), var)
+                if grad is not None else (grad, var)
+                for grad, var in grad_vars]
+        for g, v in grad_vars:
+            if g is not None:
+                tf.summary.histogram("{}/grad_histogram".format(v.name), g)
+                tf.summary.scalar("{}/grad/sparsity".format(v.name), tf.nn.zero_fraction(g))
+
         self.train_op = optimizer.apply_gradients(grad_vars, self.step)
         return
 
@@ -97,6 +103,12 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
 
         self.sess.close()
 
+    def draw_graph(self):
+        self.writer = tf.summary.FileWriter('../logs')
+        self.writer.add_graph(self.sess.graph)
+
+
+
     def get_batch_data(self, mode, idx):
         """
         Get batch data and feed it to tensorflow graph
@@ -123,6 +135,7 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
         logger("Train on {} batches, {} samples per batch, {} total.".format(batch_num, batch_size, self.train_nums))
 
         step = self.sess.run(self.step)
+        self.draw_graph()
         while step < batch_num * epochs:
             step = self.sess.run(self.step)
             # on Epoch start
@@ -144,6 +157,12 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
                     samples_in_epoch, self.train_nums,
                     step % batch_num, batch_num,
                     loss_in_epoch / samples_in_epoch, corrects_in_epoch / samples_in_epoch))
+                tf.summary.scalar('cross_entropy', self.loss)
+                tf.summary.scalar('accuracy', self.correct_prediction)
+                merged_summary = tf.summary.merge_all()
+                s = self.sess.run(merged_summary, feed_dict = data)
+                self.writer.add_summary(s, step)
+
 
             # evaluate on the valid set and early stopping
             if step and step % self.args.evaluate_every_n == 0:

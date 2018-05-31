@@ -98,7 +98,7 @@ class NLPBase(object):
         group2.add_argument("--dataset", default="CBT_CN", choices=sys.modules['dataset'].__all__, type=str,
                             help='type of the dataset to load')
 
-        group2.add_argument("--embedding_file", default="data/glove.6B/glove.6B.200d.txt",
+        group2.add_argument("--embedding_file", default="data/glove.6B/glove.6B.300d.txt",
                             type=str_or_none, help="pre-trained embedding file")
 
         group2.add_argument("--max_vocab_num", default=100000, type=int, help="the max number of words in vocabulary")
@@ -127,15 +127,15 @@ class NLPBase(object):
 
         group3.add_argument("--char_embedding_dim", default=100, type=int, help="dimension of char embeddings")
 
-        group3.add_argument("--embedding_dim", default=200, type=int, help="dimension of word embeddings")
+        group3.add_argument("--embedding_dim", default=300, type=int, help="dimension of word embeddings")
 
         group3.add_argument("--hidden_size", default=128, type=int, help="RNN hidden size")
 
         group3.add_argument("--grad_clipping", default=10, type=int, help="the threshold value of gradient clip")
 
-        group3.add_argument("--lr", default=0.01, type=float, help="learning rate")
+        group3.add_argument("--lr", default=0.001, type=float, help="learning rate")
 
-        group3.add_argument("--keep_prob", default=0.9, type=float, help="dropout,percentage to keep during training")
+        group3.add_argument("--keep_prob", default=0.5, type=float, help="dropout,percentage to keep during training")
 
         group3.add_argument("--l2", default=0.0001, type=float, help="l2 regularization weight")
 
@@ -144,7 +144,7 @@ class NLPBase(object):
         group3.add_argument("--use_lstm", default=False, type=str2bool,
                             help="RNN kind, if False, use GRU else LSTM")
 
-        group3.add_argument("--batch_size", default=128, type=int, help="batch_size")
+        group3.add_argument("--batch_size", default=32, type=int, help="batch_size")
 
         group3.add_argument("--optimizer", default="ADAM", choices=["SGD", "ADAM"],
                             help="optimize algorithms, SGD or Adam")

@@ -52,7 +52,9 @@ class Simple_model(RcBase):
                                                                    swap_memory = True, time_major = False, scope = None)
 
             # last_states -> (output_state_fw, output_state_bw)
+            # q_emb_bi = tf.concat([last_states[0][-1], last_states[1][-1]], axis = -1)
             q_emb_bi = tf.concat(outputs, axis = -1)
+
             logger("q_encoded_bf shape {}".format(q_emb_bi.get_shape()))
 
         with tf.variable_scope('d_encoder'):
@@ -69,14 +71,6 @@ class Simple_model(RcBase):
             d_emb_bi = tf.concat(d_rnn_out, axis = -1)
             logger("d_encoded_bf shape {}".format(d_emb_bi.get_shape()))
 
-        # def atten(x):
-        #     """
-        #     :param x: is a tuple which contain shape (None, max_time, hidden_size) (None, hidden_size)
-        #     :return:
-        #     """
-        #     atten = tf.matmul(d_emb_bi, tf.expand_dims(x, -1), adjoint_a = False, adjoint_b = False)
-        #     return tf.reshape(atten, [-1, self.d_len])
-
         with tf.variable_scope('attention_dq'):
             atten_d_q = tf.matmul(d_emb_bi, q_emb_bi, adjoint_b = True)
             atten_d = tf.reduce_sum(atten_d_q, axis = -1)
@@ -86,11 +80,6 @@ class Simple_model(RcBase):
             # there should be [None, seq_len, hidden_size]
             attened_d = tf.multiply(d_emb_bi, tf.expand_dims(attened_softmax, -1))
 
-        # def candidate_score(x):
-        #     context, cand = x
-        #     score = tf.matmul(cand, context, adjoint_b = True)  # [None, seq_len, 1)
-        #     score_sum = tf.reduce_mean(score, axis = -1)
-        #     return score_sum
 
         with tf.variable_scope('candidate'):
             candi_embed = tf.nn.embedding_lookup(params = embedding_matrix, ids = candidate_idxs)
@@ -110,7 +99,7 @@ class Simple_model(RcBase):
 
 
     @staticmethod
-    def softmax_with_mask(logits, axis, mask, epsilon=10e-8, name=None):
+    def softmax_with_mask(logits, axis, mask, epsilon=10e-8, name=None): # 1. normalize 2. softmax
         with tf.name_scope(name, 'softmax', [logits, mask]):
             max_axis = tf.reduce_max(logits, axis, keep_dims=True)
             target_exp = tf.exp(logits - max_axis) * mask
