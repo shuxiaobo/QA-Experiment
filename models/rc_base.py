@@ -9,7 +9,7 @@ import dataset
 from models import models_in_datasets
 from models.nlp_base import NLPBase
 from utils.log import logger, save_obj_to_json, err
-
+import datetime
 
 # noinspection PyAttributeOutsideInit
 class RcBase(NLPBase, metaclass=abc.ABCMeta):
@@ -104,7 +104,7 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
         self.sess.close()
 
     def draw_graph(self):
-        self.writer = tf.summary.FileWriter('../logs')
+        self.writer = tf.summary.FileWriter('../logs/log-bs%d-lr%d-model%s-emb%d-id%d' % (self.args.batch_size, self.args.lr, self.__class__.__name__, self.args.embedding_size, datetime.datetime.now()))
         self.writer.add_graph(self.sess.graph)
 
 
@@ -157,11 +157,12 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
                     samples_in_epoch, self.train_nums,
                     step % batch_num, batch_num,
                     loss_in_epoch / samples_in_epoch, corrects_in_epoch / samples_in_epoch))
-                tf.summary.scalar('cross_entropy', self.loss)
-                tf.summary.scalar('accuracy', self.correct_prediction)
+                tf.summary.scalar('cross_entropy', loss)
+                tf.summary.scalar('accuracy', corrects_in_batch)
                 merged_summary = tf.summary.merge_all()
                 s = self.sess.run(merged_summary, feed_dict = data)
                 self.writer.add_summary(s, step)
+                self.writer.flush()
 
 
             # evaluate on the valid set and early stopping
