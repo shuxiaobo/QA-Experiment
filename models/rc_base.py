@@ -104,7 +104,7 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
         self.sess.close()
 
     def draw_graph(self):
-        self.writer = tf.summary.FileWriter('../logs/log-bs%d-lr%d-model%s-emb%d-id%d' % (self.args.batch_size, self.args.lr, self.__class__.__name__, self.args.embedding_size, datetime.datetime.now()))
+        self.writer = tf.summary.FileWriter('../logs/log-bs%d-lr%d-model%s-emb%d-id%s' % (self.args.batch_size, self.args.lr, self.__class__.__name__, self.args.embedding_dim, str(datetime.datetime.now())))
         self.writer.add_graph(self.sess.graph)
 
 

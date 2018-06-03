@@ -133,7 +133,7 @@ class NLPBase(object):
 
         group3.add_argument("--grad_clipping", default=10, type=int, help="the threshold value of gradient clip")
 
-        group3.add_argument("--lr", default=0.005, type=float, help="learning rate")
+        group3.add_argument("--lr", default=0.001, type=float, help="learning rate")
 
         group3.add_argument("--keep_prob", default=0.5, type=float, help="dropout,percentage to keep during training")
 
@@ -144,7 +144,7 @@ class NLPBase(object):
         group3.add_argument("--use_lstm", default=False, type=str2bool,
                             help="RNN kind, if False, use GRU else LSTM")
 
-        group3.add_argument("--batch_size", default=64, type=int, help="batch_size")
+        group3.add_argument("--batch_size", default=32, type=int, help="batch_size")
 
         group3.add_argument("--optimizer", default="ADAM", choices=["SGD", "ADAM"],
                             help="optimize algorithms, SGD or Adam")
