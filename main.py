@@ -4,7 +4,7 @@ import sys
 from models.nlp_base import NLPBase
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3"
 
 def get_model_class(model_name):
     if len(sys.argv) > 1:
@@ -25,5 +25,5 @@ def get_model_class(model_name):
 
 if __name__ == '__main__':
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = "3"
-    model = get_model_class('Simple_model')
+    model = get_model_class('Simple_modelrl')
     model.execute()

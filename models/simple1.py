@@ -15,7 +15,7 @@ from models.rc_base import RcBase
 from utils.log import logger
 
 
-class Simple_model(RcBase):
+class Simple_model1(RcBase):
     """
     """
 
@@ -23,7 +23,6 @@ class Simple_model(RcBase):
         num_layers = self.args.num_layers
         hidden_size = self.args.hidden_size
         cell = LSTMCell if self.args.use_lstm else GRUCell
-        # cell = LSTMCell if self.args.use_lstm else AttentionCell
 
         q_input = tf.placeholder(dtype = tf.int32, shape = [None, self.q_len], name = 'questions_bt')
         candidate_idxs = tf.placeholder(dtype = tf.int32, shape = [None, self.dataset.A_len], name = 'candidates_bi')
@@ -50,29 +49,49 @@ class Simple_model(RcBase):
             q_rnn_b = MultiRNNCell(
                 cells = [DropoutWrapper(cell(hidden_size), output_keep_prob = self.args.keep_prob) for _ in range(num_layers)])
 
-            outputs, last_states = tf.nn.bidirectional_dynamic_rnn(cell_fw = q_rnn_f, cell_bw = q_rnn_b, inputs = q_embed,
-                                                                   sequence_length = q_real_len, initial_state_bw = None,
-                                                                   dtype = "float32", parallel_iterations = None,
-                                                                   swap_memory = True, time_major = False, scope = None)
+            outputs, q_last_states = tf.nn.bidirectional_dynamic_rnn(cell_fw = q_rnn_f, cell_bw = q_rnn_b, inputs = q_embed,
+                                                                     sequence_length = q_real_len, initial_state_bw = None,
+                                                                     dtype = "float32", parallel_iterations = None,
+                                                                     swap_memory = True, time_major = False, scope = None)
 
             # last_states -> (output_state_fw, output_state_bw)
-            # q_emb_bi = tf.concat([last_states[0][-1], last_states[1][-1]], axis = -1)
+            # q_emb_bi = tf.concat([q_last_states[0][-1], q_last_states[1][-1]], axis = -1)
             q_emb_bi = tf.concat(outputs, axis = -1)
 
             logger("q_encoded_bf shape {}".format(q_emb_bi.get_shape()))
 
-        with tf.variable_scope('d_encoder'):
-            d_embed = tf.nn.embedding_lookup(embedding_matrix, d_input)
+        # with tf.variable_scope('d_encoder'):
+        #     d_embed = tf.nn.embedding_lookup(embedding_matrix, d_input)
+        #
+        #     d_rnn_f = MultiRNNCell(
+        #         cells = [DropoutWrapper(cell(hidden_size), output_keep_prob = self.args.keep_prob) for _ in range(num_layers)])
+        #     d_rnn_b = MultiRNNCell(
+        #         cells = [DropoutWrapper(cell(hidden_size), output_keep_prob = self.args.keep_prob) for _ in range(num_layers)])
+        #
+        #     d_rnn_out, last_states = tf.nn.bidirectional_dynamic_rnn(cell_bw = d_rnn_b, cell_fw = d_rnn_f, inputs = d_embed,
+        #                                                              sequence_length = d_real_len, swap_memory = True, dtype = "float32", )
+        #
+        #     d_emb_bi = tf.concat(d_rnn_out, axis = -1)
+        #     logger("d_encoded_bf shape {}".format(d_emb_bi.get_shape()))
 
+        def cell_fn(a, x):
+            score = tf.matmul(a[1][0], q_last_states[0][-1])
+            tf.assign(a[1][0], tf.multiply(score, a[1][0]))
+            return d_rnn_f(x, a[1])
+
+        with tf.variable_scope('d_encoder_new') as scp:
             d_rnn_f = MultiRNNCell(
                 cells = [DropoutWrapper(cell(hidden_size), output_keep_prob = self.args.keep_prob) for _ in range(num_layers)])
             d_rnn_b = MultiRNNCell(
                 cells = [DropoutWrapper(cell(hidden_size), output_keep_prob = self.args.keep_prob) for _ in range(num_layers)])
-
-            d_rnn_out, last_states = tf.nn.bidirectional_dynamic_rnn(cell_bw = d_rnn_b, cell_fw = d_rnn_f, inputs = d_embed,
-                                                                     sequence_length = d_real_len, swap_memory = True, dtype = "float32", )
-
-            d_emb_bi = tf.concat(d_rnn_out, axis = -1)
+            d_embed = tf.nn.embedding_lookup(embedding_matrix, d_input)
+            d_forward, d_forward_last = tf.scan(fn = cell_fn, elems = [tf.transpose(d_embed, [1, 0, 2])],
+                                                initializer = (tf.zeros([self.args.batch_size, self.args.hidden_size]),
+                                                               d_rnn_f.zero_state(batch_size = self.args.batch_size, dtype = tf.float32)))
+            d_backward, d_backward_last = tf.scan(fn = cell_fn, elems = [tf.transpose(tf.reverse(d_embed, axis = 1), [1, 0, 2])],
+                                                  initializer = (tf.zeros([self.args.batch_size, self.args.hidden_size]),
+                                                                 d_rnn_b.zero_state(batch_size = self.args.batch_size, dtype = tf.float32)))
+            d_emb_bi = tf.concat([d_forward, d_backward], axis = -1)
             logger("d_encoded_bf shape {}".format(d_emb_bi.get_shape()))
 
         with tf.variable_scope('attention_dq'):
@@ -119,32 +138,3 @@ class Simple_model(RcBase):
             normalize = tf.reduce_sum(target_exp, axis, keep_dims = True)
             softmax = target_exp / (normalize + epsilon)
             return softmax
-
-
-class AttentionCell(GRUCell):
-    def __init__(self, hidden_size, encodered, encoder_input_size, state_is_tuple=True, ):
-        super(AttentionCell, self).__init__(num_units = hidden_size)
-        self.hidden_size = hidden_size
-        self.state_is_tuple = state_is_tuple
-        self.encodered = encodered
-        self.encoder_input_size = encoder_input_size
-
-    def __call__(self, x, state):
-        c, h = state
-        cell_state = h
-        score = tf.matmul(self.encodered, cell_state)
-        cell_state = tf.multiply(cell_state, score)
-
-
-        return super(AttentionCell, self).call(x, cell_state)
-
-    def get_weight(self, state_size):
-        xavier_init = tf.contrib.layers.xavier_initializer()
-        zero_init = tf.constant_initializer(0)
-        w_x = tf.get_variable('w_y', shape = [state_size, state_size], dtype = tf.float32, initializer = xavier_init)
-        w_p = tf.get_variable('w_y', shape = [state_size, state_size], dtype = tf.float32, initializer = xavier_init)
-        w_h = tf.get_variable('w_y', shape = [state_size, state_size], dtype = tf.float32, initializer = xavier_init)
-        w_y = tf.get_variable('w_y', shape = [state_size, state_size], dtype = tf.float32, initializer = xavier_init)
-        bias_f = tf.get_variable()
-        w = tf.get_variable("w", shape = [state_size, ], dtype = tf.float32, initializer = xavier_init)
-        return w_y, w_h, w_p, w_x, w
