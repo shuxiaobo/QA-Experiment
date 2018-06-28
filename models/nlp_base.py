@@ -18,7 +18,7 @@ class NLPBase(object):
     def __init__(self):
         self.model_name = self.__class__.__name__
         config = tf.ConfigProto()
-        config.gpu_options.per_process_gpu_memory_fraction = 0.6
+        # config.gpu_options.per_process_gpu_memory_fraction = 0.6
         self.sess = tf.Session(config = config)
         # get arguments
         self.args = self.get_args()
@@ -95,7 +95,7 @@ class NLPBase(object):
         group2 = parser.add_argument_group("2.Data specific options")
         # noinspection PyUnresolvedReferences
         import dataset
-        group2.add_argument("--dataset", default="CBT_CN", choices=sys.modules['dataset'].__all__, type=str,
+        group2.add_argument("--dataset", default="SQuAD", choices=sys.modules['dataset'].__all__, type=str,
                             help='type of the dataset to load')
 
         group2.add_argument("--embedding_file", default="data/glove.6B/glove.6B.300d.txt",
@@ -129,15 +129,15 @@ class NLPBase(object):
 
         group3.add_argument("--embedding_dim", default=300, type=int, help="dimension of word embeddings")
 
-        group3.add_argument("--hidden_size", default=128, type=int, help="RNN hidden size")
+        group3.add_argument("--hidden_size", default=64, type=int, help="RNN hidden size")
 
         group3.add_argument("--grad_clipping", default=10, type=int, help="the threshold value of gradient clip")
 
-        group3.add_argument("--lr", default=0.001, type=float, help="learning rate")
+        group3.add_argument("--lr", default=0.002, type=float, help="learning rate")
 
         group3.add_argument("--keep_prob", default=0.5, type=float, help="dropout,percentage to keep during training")
 
-        group3.add_argument("--l2", default=0.0001, type=float, help="l2 regularization weight")
+        group3.add_argument("--l2", default=0.005, type=float, help="l2 regularization weight")
 
         group3.add_argument("--num_layers", default=1, type=int, help="RNN layer number")
 

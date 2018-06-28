@@ -20,8 +20,8 @@ class SQuAD(RCDataset):
             "documents_bt:0": dataset[0][_slice],
             "questions_bt:0": dataset[1][_slice],
             # TODO: substitute with real data
-            "documents_btk:0": np.zeros([samples, self.d_len, self.w_len]),
-            "questions_btk:0": np.zeros([samples, self.q_len, self.w_len]),
+            # "documents_btk:0": np.zeros([samples, self.d_len, self.w_len]),
+            # "questions_btk:0": np.zeros([samples, self.q_len, self.w_len]),
             "answer_start:0": dataset[2][_slice],
             "answer_end:0": dataset[3][_slice]
         }

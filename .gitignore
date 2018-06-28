@@ -136,3 +136,4 @@ data/glove.6B/
 data/SQuAD/
 weights/args\.json
 data/*
+.DS_Store

@@ -18,7 +18,7 @@ def default_tokenizer(sentence):
 
 
 # noinspection PyAttributeOutsideInit
-class RCDataset(object, metaclass=abc.ABCMeta):
+class RCDataset(object, metaclass = abc.ABCMeta):
     def __init__(self, args):
         self.args = args
         # padding,start of sentence,end of sentence,unk,end of question
@@ -104,7 +104,7 @@ class RCDataset(object, metaclass=abc.ABCMeta):
         return self.next_batch_feed_dict_by_dataset(dataset, _slice, samples)
 
     @staticmethod
-    def gen_embeddings(word_dict, embed_dim, in_file=None, init=np.zeros):
+    def gen_embeddings(word_dict, embed_dim, in_file = None, init = np.zeros):
         """
         Init embedding matrix with (or without) pre-trained word embeddings.
         """
@@ -116,21 +116,21 @@ class RCDataset(object, metaclass=abc.ABCMeta):
             return embedding_matrix
 
         def get_dim(file):
-            first = gfile.FastGFile(file, mode='r').readline()
+            first = gfile.FastGFile(file, mode = 'r').readline()
             return len(first.split()) - 1
 
         assert get_dim(in_file) == embed_dim
         logger('Loading embedding file: %s' % in_file)
         pre_trained = 0
-        for line in codecs.open(in_file, encoding="utf-8"):
+        for line in codecs.open(in_file, encoding = "utf-8"):
             sp = line.split()
             if sp[0] in word_dict:
                 pre_trained += 1
-                embedding_matrix[word_dict[sp[0]]] = np.asarray([float(x) for x in sp[1:]], dtype=np.float32)
+                embedding_matrix[word_dict[sp[0]]] = np.asarray([float(x) for x in sp[1:]], dtype = np.float32)
         logger("Pre-trained: {}, {:.3f}%".format(pre_trained, pre_trained * 100.0 / num_words))
         return embedding_matrix
 
-    def sentence_to_token_ids(self, sentence, word_dict, tokenizer=default_tokenizer):
+    def sentence_to_token_ids(self, sentence, word_dict, tokenizer = default_tokenizer):
         """
         Turn sentence to token ids.
             sentence:       ["I", "have", "a", "dog"]
@@ -139,7 +139,16 @@ class RCDataset(object, metaclass=abc.ABCMeta):
         """
         return [word_dict.get(token, self.UNK_ID) for token in tokenizer(sentence)]
 
-    def get_embedding_matrix(self, vocab_file, is_char_embedding=False):
+    def words_to_char_ids(self, sentence, char_dict, tokenizer = default_tokenizer):
+        """
+        Turn the sentence to char ids
+            sentence:       ["I", "have"]
+            word_list:      {"I": 1, "h": 2, "a": 4, "v":3, "e":5, "dog": 7"}
+            return:         [[1], [2, 4, 3, 5],]
+        """
+        return [[char_dict.get(ch, self._CHAR_UNK) for ch in word] for word in tokenizer(sentence)]
+
+    def get_embedding_matrix(self, vocab_file, is_char_embedding = False):
         """
         :param is_char_embedding: is the function called for generate char embedding
         :param vocab_file: file containing saved vocabulary.
@@ -151,7 +160,7 @@ class RCDataset(object, metaclass=abc.ABCMeta):
         embedding_matrix = self.gen_embeddings(word_dict,
                                                embedding_dim,
                                                embedding_file,
-                                               init=np.random.uniform)
+                                               init = np.random.uniform)
         return embedding_matrix
 
     def sort_by_length(self, data):
@@ -159,7 +168,7 @@ class RCDataset(object, metaclass=abc.ABCMeta):
         pass
 
     @staticmethod
-    def gen_char_vocab(data_file, tokenizer=default_tokenizer, old_counter=None):
+    def gen_char_vocab(data_file, tokenizer = default_tokenizer, old_counter = None):
         """
          generate character level vocabulary according to train corpus.
         """
@@ -180,7 +189,7 @@ class RCDataset(object, metaclass=abc.ABCMeta):
         return char_counter
 
     @staticmethod
-    def gen_vocab(data_file, tokenizer=default_tokenizer, old_counter=None, max_count=None):
+    def gen_vocab(data_file, tokenizer = default_tokenizer, old_counter = None, max_count = None):
         """
         generate vocabulary according to train corpus.
         """
@@ -207,7 +216,7 @@ class RCDataset(object, metaclass=abc.ABCMeta):
 
         return word_counter
 
-    def save_char_vocab(self, char_counter, char_vocab_file, max_vocab_num=None):
+    def save_char_vocab(self, char_counter, char_vocab_file, max_vocab_num = None):
         """
         Save character vocabulary.
         We need two special vo
@@ -218,7 +227,7 @@ class RCDataset(object, metaclass=abc.ABCMeta):
             for char in list(map(lambda x: x[0], char_counter.most_common(max_vocab_num))):
                 f.write(char + "\n")
 
-    def save_vocab(self, word_counter, vocab_file, max_vocab_num=None):
+    def save_vocab(self, word_counter, vocab_file, max_vocab_num = None):
         with gfile.FastGFile(vocab_file, "w") as f:
             for word in self._START_VOCAB:
                 f.write(word + "\n")
@@ -234,7 +243,7 @@ class RCDataset(object, metaclass=abc.ABCMeta):
             raise ValueError("Vocabulary file %s not found.", vocab_file)
         word_dict = {}
         word_id = 0
-        for line in codecs.open(vocab_file, encoding="utf-8"):
+        for line in codecs.open(vocab_file, encoding = "utf-8"):
             word_dict.update({line.strip(): word_id})
             word_id += 1
         return word_dict
