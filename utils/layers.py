@@ -63,6 +63,49 @@ class MatchCell(RNNCell):
             a = tf.nn.softmax(exp_mask(linear(f, 1, True, squeeze = True, scope = 'a'), q_mask))  # [N, JQ]
             q = tf.reduce_sum(qs * tf.expand_dims(a, -1), 1)
             z = tf.concat([x, q], 1)  # [N, 2d]
+            return self._cell(z, state)
+
+
+class MatchAddCell(RNNCell):
+    """
+    Match Rnn Cell
+    match all the question word with the sigle context word. rebuild the question with attention and send the concat([question, context]) to rnncell
+    tile state and x, the compute (Wx + Ws + Wq) + b, then softmax to attention update the question send the concat([question, context]) to rnncell
+    """
+
+    def __init__(self, cell, input_size, q_len):
+        self._cell = cell
+        self._input_size = input_size
+        # FIXME : This won't be needed with good shape guessing
+        self._q_len = q_len
+
+    @property
+    def state_size(self):
+        return self._cell.state_size
+
+    @property
+    def output_size(self):
+        return self._cell.output_size
+
+    def __call__(self, inputs, state, scope = None):
+        """
+        :param inputs: [N, d + JQ + JQ * d] : input + q_mask + question
+        :param state: [N, d]
+        :param scope:
+        :return:
+        """
+        with tf.variable_scope(scope or self.__class__.__name__):
+            c_prev, h_prev = state
+            x = tf.slice(inputs, [0, 0], [-1, self._input_size])
+            q_mask = tf.slice(inputs, [0, self._input_size], [-1, self._q_len])  # [N, JQ]
+            qs = tf.slice(inputs, [0, self._input_size + self._q_len], [-1, -1])
+            qs = tf.reshape(qs, [-1, self._q_len, self._input_size])  # [N, JQ, d]
+            x_tiled = tf.tile(tf.expand_dims(x, 1), [1, self._q_len, 1])  # [N, JQ, d]
+            h_prev_tiled = tf.tile(tf.expand_dims(h_prev, 1), [1, self._q_len, 1])  # [N, JQ, d]
+            f = tf.tanh(linear([qs, x_tiled, h_prev_tiled], self._input_size, True, scope = 'f'))  # [N, JQ, d]
+            a = tf.nn.softmax(exp_mask(linear(f, 1, True, squeeze = True, scope = 'a'), q_mask))  # [N, JQ]
+            q = tf.reduce_sum(qs * tf.expand_dims(a, -1), 1)
+            z = tf.concat([x, q], 1)  # [N, 2d]
             return self._cell(z, state[1])
 
 
@@ -249,15 +292,17 @@ def pointer(inputs, state, hidden, mask, scope = "pointer"):
         res = tf.reduce_sum(a * inputs, axis = 1)
         return res, s1
 
-def summ(memory, hidden, mask, keep_prob=1.0, is_train=None, scope="summ"):
+
+def summ(memory, hidden, mask, keep_prob = 1.0, is_train = None, scope = "summ"):
     with tf.variable_scope(scope):
-        d_memory = dropout(memory, keep_prob=keep_prob, is_train=is_train)
-        s0 = tf.nn.tanh(dense(d_memory, hidden, scope="s0"))
-        s = dense(s0, 1, use_bias=False, scope="s")
+        d_memory = dropout(memory, keep_prob = keep_prob, is_train = is_train)
+        s0 = tf.nn.tanh(dense(d_memory, hidden, scope = "s0"))
+        s = dense(s0, 1, use_bias = False, scope = "s")
         s1 = softmax_mask(tf.squeeze(s, [2]), mask)
-        a = tf.expand_dims(tf.nn.softmax(s1), axis=2)
-        res = tf.reduce_sum(a * memory, axis=1)
+        a = tf.expand_dims(tf.nn.softmax(s1), axis = 2)
+        res = tf.reduce_sum(a * memory, axis = 1)
         return res
+
 
 def softmax_mask(val, mask):
     val = val * mask
@@ -280,3 +325,208 @@ def dense(inputs, hidden, use_bias = True, scope = "dense"):
             res = tf.nn.bias_add(res, b)
         res = tf.reshape(res, out_shape)
         return res
+
+
+from tensorflow.python.ops.rnn_cell import DropoutWrapper
+from tensorflow.python.ops import rnn_cell
+
+
+class RNNEncoder(object):
+    """
+    General-purpose module to encode a sequence using a RNN.
+    It feeds the input through a RNN and returns all the hidden states.
+    Note: In lecture 8, we talked about how you might use a RNN as an "encoder"
+    to get a single, fixed size vector representation of a sequence
+    (e.g. by taking element-wise max of hidden states).
+    Here, we're using the RNN as an "encoder" but we're not taking max;
+    we're just returning all the hidden states. The terminology "encoder"
+    still applies because we're getting a different "encoding" of each
+    position in the sequence, and we'll use the encodings downstream in the model.
+    This code uses a bidirectional GRU, but you could experiment with other types of RNN.
+    """
+
+    def __init__(self, hidden_size, keep_prob):
+        """
+        Inputs:
+          hidden_size: int. Hidden size of the RNN
+          keep_prob: Tensor containing a single scalar that is the keep probability (for dropout)
+        """
+        self.hidden_size = hidden_size
+        self.keep_prob = keep_prob
+        self.rnn_cell_fw = rnn_cell.GRUCell(self.hidden_size)
+        self.rnn_cell_fw = DropoutWrapper(self.rnn_cell_fw, input_keep_prob = self.keep_prob)
+        self.rnn_cell_bw = rnn_cell.GRUCell(self.hidden_size)
+        self.rnn_cell_bw = DropoutWrapper(self.rnn_cell_bw, input_keep_prob = self.keep_prob)
+
+    def build_graph(self, inputs, masks, input_lens):
+        """
+        Inputs:
+          inputs: Tensor shape (batch_size, seq_len, input_size)
+          masks: Tensor shape (batch_size, seq_len).
+            Has 1s where there is real input, 0s where there's padding.
+            This is used to make sure tf.nn.bidirectional_dynamic_rnn doesn't iterate through masked steps.
+        Returns:
+          out: Tensor shape (batch_size, seq_len, hidden_size*2).
+            This is all hidden states (fw and bw hidden states are concatenated).
+        """
+        with tf.variable_scope("RNNEncoder"):
+            # Note: fw_out and bw_out are the hidden states for every timestep.
+            # Each is shape (batch_size, seq_len, hidden_size).
+            (fw_out, bw_out), _ = tf.nn.bidirectional_dynamic_rnn(self.rnn_cell_fw, self.rnn_cell_bw, inputs, input_lens,
+                                                                  dtype = tf.float32)
+
+            # Concatenate the forward and backward hidden states
+            out = tf.concat([fw_out, bw_out], 2)
+
+            # Apply dropout
+            out = tf.nn.dropout(out, self.keep_prob)
+
+            return out
+
+
+class SimpleSoftmaxLayer(object):
+    """
+    Module to take set of hidden states, (e.g. one for each context location),
+    and return probability distribution over those states.
+    """
+
+    def __init__(self):
+        pass
+
+    def build_graph(self, inputs, masks):
+        """
+        Applies one linear downprojection layer, then softmax.
+        Inputs:
+          inputs: Tensor shape (batch_size, seq_len, hidden_size)
+          masks: Tensor shape (batch_size, seq_len)
+            Has 1s where there is real input, 0s where there's padding.
+        Outputs:
+          logits: Tensor shape (batch_size, seq_len)
+            logits is the result of the downprojection layer, but it has -1e30
+            (i.e. very large negative number) in the padded locations
+          prob_dist: Tensor shape (batch_size, seq_len)
+            The result of taking softmax over logits.
+            This should have 0 in the padded locations, and the rest should sum to 1.
+        """
+        with tf.variable_scope("SimpleSoftmaxLayer"):
+            # Linear downprojection layer
+            logits = tf.contrib.layers.fully_connected(inputs, num_outputs = 1, activation_fn = None)  # shape (batch_size, seq_len, 1)
+            logits = tf.squeeze(logits, axis = [2])  # shape (batch_size, seq_len)
+
+            # Take softmax over sequence
+            masked_logits, prob_dist = masked_softmax(logits, masks, 1)
+
+            return masked_logits, prob_dist
+
+
+class BasicAttn(object):
+    """Module for basic attention.
+    Note: in this module we use the terminology of "keys" and "values" (see lectures).
+    In the terminology of "X attends to Y", "keys attend to values".
+    In the baseline model, the keys are the context hidden states
+    and the values are the question hidden states.
+    We choose to use general terminology of keys and values in this module
+    (rather than context and question) to avoid confusion if you reuse this
+    module with other inputs.
+    """
+
+    def __init__(self, keep_prob, key_vec_size, value_vec_size):
+        """
+        Inputs:
+          keep_prob: tensor containing a single scalar that is the keep probability (for dropout)
+          key_vec_size: size of the key vectors. int
+          value_vec_size: size of the value vectors. int
+        """
+        self.keep_prob = keep_prob
+        self.key_vec_size = key_vec_size
+        self.value_vec_size = value_vec_size
+
+    def build_graph(self, values, values_mask, keys):
+        """
+        Keys attend to values.
+        For each key, return an attention distribution and an attention output vector.
+        Inputs:
+          values: Tensor shape (batch_size, num_values, value_vec_size).
+          values_mask: Tensor shape (batch_size, num_values).
+            1s where there's real input, 0s where there's padding
+          keys: Tensor shape (batch_size, num_keys, value_vec_size)
+        Outputs:
+          attn_dist: Tensor shape (batch_size, num_keys, num_values).
+            For each key, the distribution should sum to 1,
+            and should be 0 in the value locations that correspond to padding.
+          output: Tensor shape (batch_size, num_keys, hidden_size).
+            This is the attention output; the weighted sum of the values
+            (using the attention distribution as weights).
+        """
+        with tf.variable_scope("BasicAttn"):
+            # Calculate attention distribution
+            values_t = tf.transpose(values, perm = [0, 2, 1])  # (batch_size, value_vec_size, num_values)
+            attn_logits = tf.matmul(keys, values_t)  # shape (batch_size, num_keys, num_values)
+            attn_logits_mask = tf.expand_dims(values_mask, 1)  # shape (batch_size, 1, num_values)
+            _, attn_dist = masked_softmax(attn_logits, attn_logits_mask,
+                                          2)  # shape (batch_size, num_keys, num_values). take softmax over values
+
+            # Use attention distribution to take weighted sum of values
+            output = tf.matmul(attn_dist, values)  # shape (batch_size, num_keys, value_vec_size)
+
+            # Apply dropout
+            output = tf.nn.dropout(output, self.keep_prob)
+
+            return attn_dist, output
+
+
+def masked_softmax(logits, mask, dim):
+    """
+    Takes masked softmax over given dimension of logits.
+    Inputs:
+      logits: Numpy array. We want to take softmax over dimension dim.
+      mask: Numpy array of same shape as logits.
+        Has 1s where there's real data in logits, 0 where there's padding
+      dim: int. dimension over which to take softmax
+    Returns:
+      masked_logits: Numpy array same shape as logits.
+        This is the same as logits, but with 1e30 subtracted
+        (i.e. very large negative number) in the padding locations.
+      prob_dist: Numpy array same shape as logits.
+        The result of taking softmax over masked_logits in given dimension.
+        Should be 0 in padding locations.
+        Should sum to 1 over given dimension.
+    """
+    exp_mask = (1 - tf.cast(mask, 'float')) * (-1e30)  # -large where there's padding, 0 elsewhere
+    masked_logits = tf.add(logits, exp_mask)  # where there's padding, set logits to -large
+    prob_dist = tf.nn.softmax(masked_logits, dim)
+    return masked_logits, prob_dist
+
+
+def context_query_attention(context, query, scope = "context_query_att", reuse = None):
+    '''
+    Defines a context-query attention layer
+    This layer computes both the context-to-query attention and query-to-context attention
+    '''
+    # dimensions=[B, N, d] ([batch_size, max_words_context, word_dimension])
+    B, N, d = context.get_shape().as_list()
+    # dimensions=[B, M, d] ([batch_size, max_words_question, word_dimension])
+    B, M, d = query.get_shape().as_list()
+    with tf.variable_scope(scope, reuse = reuse):
+        # apply manual broadcasting to compute pair wise trilinear similarity score
+        # trilinear similarity score is computed between all pairs of context words and question words
+        # dimensions=[B, N, d] -> [B, N, M, d]
+        context_expand = tf.tile(tf.expand_dims(context, 2), [1, 1, M, 1])
+        # dimensions=[B, M, d] -> [B, N, M, d]
+        query_expand = tf.tile(tf.expand_dims(query, 1), [1, N, 1, 1])
+        # concat(q, c, (q)dot(c)) which is the input to the trilinear similarity score computation function
+        mat = tf.concat((query_expand, context_expand, query_expand * context_expand), axis = 3)
+        # apply trilinear function as a linear dense layer
+        # dimensions=[B, N, M, 1]
+        similarity = tf.layers.dense(mat, 1, name = "dense", reuse = reuse)
+        # dimensions=[B, N, M]
+        similarity = tf.squeeze(similarity, -1)
+        # normalizing by applying softmax over rows of similarity matrix
+        similarity_row_normalized = tf.nn.softmax(similarity, dim = 1)
+        # normalizing by applying softmax over columns of similarity matrix
+        similarity_column_normalized = tf.nn.softmax(similarity, dim = 2)
+        # computing A = S_bar X Question
+        matrix_a = tf.matmul(similarity_row_normalized, query)
+        # computing B = S_bar X S_double_bar X Context
+        matrix_b = tf.matmul(tf.matmul(similarity_row_normalized, tf.transpose(similarity_column_normalized, [0, 2, 1])), context)
+        return matrix_a, matrix_b

@@ -130,8 +130,8 @@ class SimpleModelSQuad2(RcBase):
             self.p2 = p2
         self.answer1 = answer_s
         epsilon = tf.convert_to_tensor(_EPSILON, p1.dtype.base_dtype, name = "epsilon")
-        p1 = tf.clip_by_value(p1, epsilon, 1. - epsilon)
-        p2 = tf.clip_by_value(p2, epsilon, 1. - epsilon)
+        p1 = tf.clip_by_value(p1, epsilon, 1. - epsilon) + (1 - d_mask)
+        p2 = tf.clip_by_value(p2, epsilon, 1. - epsilon) + (1 - d_mask)
         self.loss = -tf.reduce_mean(tf.reduce_sum(tf.multiply(tf.log(p1), answer_s) + tf.multiply(tf.log(p2), answer_e)))
 
         self.correct_prediction = tf.reduce_sum(

@@ -145,7 +145,7 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
                 self.dataset.shuffle()
 
             data, samples = self.get_batch_data("train", step % batch_num)
-            loss, _, corrects_in_batch = self.sess.run([self.loss, self.train_op, self.correct_prediction],
+            loss, _, corrects_in_batch, begin_acc, end_acc = self.sess.run([self.loss, self.train_op, self.correct_prediction, self.begin_acc, self.end_acc],
                                                        feed_dict=data)
             corrects_in_epoch += corrects_in_batch
             loss_in_epoch += loss * samples
@@ -153,10 +153,10 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
 
             # logger
             if step % self.args.print_every_n == 0:
-                logger("Samples : {}/{}.\tStep : {}/{}.\tLoss : {:.4f}.\tAccuracy : {:.4f}".format(
+                logger("Samples : {}/{}.\tStep : {}/{}.\tLoss : {:.4f}.\tAccuracy : {:.4f}.\tBegin_acc:{:.4f}.\tEnd_acc:{:.4f}".format(
                     samples_in_epoch, self.train_nums,
                     step % batch_num, batch_num,
-                    loss_in_epoch / samples_in_epoch, corrects_in_epoch / samples_in_epoch))
+                    loss_in_epoch / samples_in_epoch, corrects_in_epoch / samples_in_epoch, begin_acc/ samples_in_epoch, end_acc/ samples_in_epoch))
                 tf.summary.scalar('cross_entropy', loss)
                 tf.summary.scalar('accuracy', corrects_in_batch)
                 merged_summary = tf.summary.merge_all()

@@ -141,7 +141,7 @@ class NLPBase(object):
 
         group3.add_argument("--num_layers", default=1, type=int, help="RNN layer number")
 
-        group3.add_argument("--use_lstm", default=False, type=str2bool,
+        group3.add_argument("--use_lstm", default=True, type=str2bool,
                             help="RNN kind, if False, use GRU else LSTM")
 
         group3.add_argument("--batch_size", default=32, type=int, help="batch_size")

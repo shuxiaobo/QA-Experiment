@@ -26,7 +26,9 @@ class SimpleModelSQuad3(RcBase):
             interact and update with time or static
         2. 方法
             dot
-            bilinear: qWp or qW + pW or v(qW + pW)
+            general qWp
+            concat W[q,p]
+            perceptron: qW + pW or v*tanh(qW + pW)
             取sum or max
     interact :
         1. 计算p中词在p中每个词的相似度attention
@@ -88,7 +90,10 @@ class SimpleModelSQuad3(RcBase):
             # last_states -> (output_state_fw, output_state_bw)
             # q_emb_bi = tf.concat([q_last_states[0][-1], q_last_states[1][-1]], axis = -1)
             q_emb_bi = tf.concat(outputs, axis = -1)
-            q_last_states = tf.concat(q_last_states, -1)
+            if self.args.use_lstm:
+                q_last_states_con = tf.concat([q_last_states[0][-1][-1], q_last_states[1][-1][-1]], axis = -1)
+            else:
+                q_last_states_con = tf.concat(q_last_states, -1)
 
             logger("q_encoded_bf shape {}".format(q_emb_bi.get_shape()))
 
@@ -106,31 +111,36 @@ class SimpleModelSQuad3(RcBase):
             self.d_emb_bi = d_emb_bi
             logger("d_encoded_bf shape {}".format(d_emb_bi.get_shape()))
 
-        with tf.variable_scope('attention') as scp:
-            dq_atten = tf.einsum('bij,bjk->bik', d_emb_bi, tf.transpose(q_emb_bi, perm = [0, 2, 1]))  # B * D * Q
-            d_att = tf.reduce_sum(dq_atten, -1)
-            q_att = tf.reduce_max(dq_atten, -2)
-            d_atten_w = tf.get_variable('d_atten_w', shape = [d_emb_bi.get_shape()[-1], 1])
-            q_atten_w = tf.get_variable(name = 'q_atten_w', shape = [q_last_states.get_shape()[-1], 1])
-            d_emb_self_atten = tf.squeeze(tf.einsum('bij,jk->bik', d_emb_bi, d_atten_w), -1)
-            q_emb_self_atten = tf.squeeze(tf.einsum('bij,jk->bik', q_emb_bi, q_atten_w), -1)
-            # logger('d_emb_self_atten shape {}, d_att shape {}'.format(d_emb_self_atten.get_shape(), d_att.get_shape()))
-            d_emb_att = tf.expand_dims(self.softmax_with_mask(tf.nn.relu(d_att + d_emb_self_atten), mask = d_mask, axis = -1), -1)
-            q_emb_att = tf.expand_dims(self.softmax_with_mask(tf.nn.relu(q_att + q_emb_self_atten), mask = q_mask, axis = -1), -1)
-            self.d_emb_self_atten = d_emb_self_atten
-            self.d_att = d_att
-            # self.sess.run([tf.squeeze(self.d_emb_att), self.d_emb_bi_attened_pre, self.d_att_rnn_out, self.d_att_rnn_out2, self.d_emb_bi_attened], data)
-            self.d_emb_att = d_emb_att
-            d_emb_bi_attened = d_emb_bi + d_emb_bi * d_emb_att
-            q_emb_bi_attened = q_emb_bi + q_emb_bi * q_emb_att
-            self.d_emb_bi_attened_pre = d_emb_bi_attened  # 这一层有问题，结果太小
+        # with tf.variable_scope('attention') as scp:
+        #     dq_atten = tf.einsum('bij,bjk->bik', d_emb_bi, tf.transpose(q_emb_bi, perm = [0, 2, 1]))  # B * D * Q
+        #     d_att = tf.reduce_sum(dq_atten, -1)
+        #     q_att = tf.reduce_max(dq_atten, -2)
+        #     d_atten_w = tf.get_variable(name = 'd_atten_w', shape = [d_emb_bi.get_shape()[-1], d_emb_bi.get_shape()[-1]])
+        #     q_atten_w = tf.get_variable(name = 'q_atten_w', shape = [q_last_states_con.get_shape()[-1], q_last_states_con.get_shape()[-1]])
+        #     d_emb_self_atten = tf.reduce_sum(
+        #         tf.einsum('bij,bjk->bik', tf.einsum('bij,jk->bik', d_emb_bi, d_atten_w), tf.transpose(d_emb_bi, perm = [0, 2, 1])), -1)
+        #     q_emb_self_atten = tf.reduce_sum(tf.einsum('bij,jk->bik', q_emb_bi, q_atten_w), -1)
+        #     d_emb_att = tf.expand_dims(tf.nn.tanh(d_att + d_emb_self_atten) * d_mask, -1)
+        #     q_emb_att = tf.expand_dims(tf.nn.tanh(q_att + q_emb_self_atten) * q_mask, -1)
+        #     self.d_emb_self_atten = d_emb_self_atten
+        #     self.d_att = d_att
+        #     # self.sess.run([tf.squeeze(self.d_emb_att), self.d_emb_bi_attened_pre, self.d_att_rnn_out, self.d_att_rnn_out2, self.d_emb_bi_attened], data)
+        #     self.d_emb_att = d_emb_att
+        #     d_emb_bi_attened = d_emb_bi * d_emb_att
+        #     q_emb_bi_attened = q_emb_bi * q_emb_att
+        #     self.d_emb_bi_attened_pre = d_emb_bi_attened  # 这一层有问题，结果太小
+        with tf.variable_scope('attention_dq'):
+            atten_q, atten_d = context_query_attention(context = d_emb_bi, query = q_emb_bi, scope = 'context_query_att',
+                                                                reuse = None)
+            d_emb_bi_attened = tf.multiply(d_emb_bi, atten_d)
+            q_emb_bi_attened = q_emb_bi
 
         with tf.variable_scope("interact") as scp:
             # f_cell = MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len)
             # f_init_state = f_cell.zero_state(tf.shape(d_emb_bi)[0], dtype = tf.float32)
             # b_cell = MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len)
             # b_init_state = b_cell.zero_state(tf.shape(d_emb_bi)[0], dtype = tf.float32)
-            # reshaped_q = tf.reshape(q_emb_bi_attened, [tf.shape(q_emb_bi_attened)[0], self.q_len * hidden_size * 2])
+            reshaped_q = tf.reshape(q_emb_bi_attened, [tf.shape(q_emb_bi_attened)[0], self.q_len * hidden_size * 2])
             # d_att_rnn_out, _ = tf.scan(
             #     fn = lambda pre, x: f_cell(tf.concat([tf.reshape(x, [-1, d_emb_bi_attened.get_shape()[-1].value]), q_mask, reshaped_q], -1),
             #                                pre, scope = 'f'),
@@ -139,34 +149,36 @@ class SimpleModelSQuad3(RcBase):
             # d_att_rnn_out2, _ = tf.scan(
             #     fn = lambda pre, x: b_cell(tf.concat([tf.reshape(x, [-1, d_emb_bi_attened.get_shape()[-1].value]), q_mask, reshaped_q], -1),
             #                                pre, scope = 'b'),
-            #     elems = [tf.transpose(d_emb_bi_attened, perm = [1, 0, 2])],
+            #     elems = [tf.reverse_sequence(tf.transpose(d_emb_bi_attened, perm = [1, 0, 2]), d_real_len,
+            #                                  seq_axis = 0,
+            #                                  batch_axis = 1)],
             #     initializer = (tf.zeros(tf.shape(b_init_state)), b_init_state))
+            # d_atten_cell_f = MultiRNNCell(
+            #     cells = [DropoutWrapper(cell(hidden_size), output_keep_prob = 1.) for _ in range(num_layers)])
+            # d_atten_cell_b = MultiRNNCell(
+            #     cells = [DropoutWrapper(cell(hidden_size), output_keep_prob = 1.) for _ in range(num_layers)])
+            # d_att_rnn_out, _ = tf.nn.bidirectional_dynamic_rnn(cell_bw = d_atten_cell_b, cell_fw = d_atten_cell_f,
+            #                                                    inputs = tf.concat([d_emb_bi_attened, tf.tile(
+            #                                                        tf.transpose(q_last_states_con, perm = [1, 0, 2]),
+            #                                                        [1, d_emb_bi_attened.get_shape()[1], 1])], -1),
+            #                                                    sequence_length = d_real_len, swap_memory = True, dtype = "float32", )
+            # d_emb_bi_attened = tf.concat(d_att_rnn_out, -1)
+            # d_emb_bi_attened = tf.transpose(d_emb_bi_attened, perm = [1, 0, 2])
             d_atten_cell_f = MultiRNNCell(
-                cells = [DropoutWrapper(cell(hidden_size), output_keep_prob = 1.) for _ in range(num_layers)])
+                cells = [
+                    DropoutWrapper(MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len), output_keep_prob = 1.)
+                    for _ in range(num_layers)])
             d_atten_cell_b = MultiRNNCell(
-                cells = [DropoutWrapper(cell(hidden_size), output_keep_prob = 1.) for _ in range(num_layers)])
+                cells = [
+                    DropoutWrapper(MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len), output_keep_prob = 1.)
+                    for _ in range(num_layers)])
             d_att_rnn_out, _ = tf.nn.bidirectional_dynamic_rnn(cell_bw = d_atten_cell_b, cell_fw = d_atten_cell_f,
-                                                               inputs = tf.concat([d_emb_bi_attened, tf.tile(
-                                                                   tf.transpose(q_last_states, perm = [1, 0, 2]),
-                                                                   [1, d_emb_bi_attened.get_shape()[1], 1])], -1),
+                                                               inputs = tf.concat([d_emb_bi_attened,
+                                                                                   tf.tile(tf.expand_dims(q_mask, 1), [1, self.d_len, 1]),
+                                                                                   tf.tile(tf.expand_dims(reshaped_q, 1),
+                                                                                           [1, self.d_len, 1])], -1),
                                                                sequence_length = d_real_len, swap_memory = True, dtype = "float32", )
             d_emb_bi_attened = tf.concat(d_att_rnn_out, -1)
-            # d_emb_bi_attened = tf.transpose(d_emb_bi_attened, perm = [1, 0, 2])
-            # d_atten_cell_f = MultiRNNCell(
-            #     cells = [
-            #         DropoutWrapper(MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len), output_keep_prob = 1.)
-            #         for _ in range(num_layers)])
-            # d_atten_cell_b = MultiRNNCell(
-            #     cells = [
-            #         DropoutWrapper(MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len), output_keep_prob = 1.)
-            #         for _ in range(num_layers)])
-            # d_att_rnn_out, _ = tf.nn.bidirectional_dynamic_rnn(cell_bw = d_atten_cell_b, cell_fw = d_atten_cell_f,
-            #                                                    inputs = tf.concat([d_emb_bi_attened,
-            #                                                                        tf.tile(tf.expand_dims(q_mask, 1), [1, self.d_len, 1]),
-            #                                                                        tf.tile(tf.expand_dims(reshaped_q, 1),
-            #                                                                                [1, self.d_len, 1])], -1),
-            #                                                    sequence_length = d_real_len, swap_memory = True, dtype = "float32", )
-            # d_emb_bi_attened = tf.concat([d_att_rnn_out, d_att_rnn_out2], -1)
 
             # self.d_att_rnn_out = d_att_rnn_out
             # self.d_att_rnn_out2 = d_att_rnn_out2
@@ -174,9 +186,9 @@ class SimpleModelSQuad3(RcBase):
             self.d_emb_bi_attened = d_emb_bi_attened
 
         with tf.variable_scope('pointer') as scp:
-            pointer = ptr_net(batch = tf.shape(q_last_states)[1], hidden = q_last_states.get_shape().as_list(
+            pointer = ptr_net(batch = tf.shape(q_last_states_con)[0], hidden = q_last_states_con.get_shape().as_list(
             )[-1], keep_prob = self.args.keep_prob, is_train = tf.constant(True, dtype = tf.bool, shape = []))
-            p1, p2 = pointer(tf.squeeze(q_last_states, axis = 0), d_emb_bi_attened, hidden_size, d_mask)
+            p1, p2 = pointer(q_last_states_con, d_emb_bi_attened, hidden_size, d_mask)
             p1 = tf.nn.softmax(p1)
             p2 = tf.nn.softmax(p2)
         #
@@ -201,7 +213,7 @@ class SimpleModelSQuad3(RcBase):
         #     #     d_mask, -1), -1), axis = -1, mask = d_mask)
         #
         #     epsilon = tf.convert_to_tensor(_EPSILON, prob1.dtype.base_dtype, name = "epsilon")
-        #     prob1 = prob1 + (1 - d_mask)
+        #     prob1 = prob1 + (1 - d_mask) # 这里应该这么做，应该提早让模型学到东西，而不是后面人工挽救
         #     prob2 = prob2 + (1 - d_mask)
         #     p1 = tf.clip_by_value(prob1, epsilon, 1. - epsilon)
         #     p2 = tf.clip_by_value(prob2, epsilon, 1. - epsilon)
@@ -218,6 +230,13 @@ class SimpleModelSQuad3(RcBase):
                     tf.equal(tf.argmax(answer_e, 1), tf.argmax(p2, 1))
                 ), dtype = 'float'
             )))
+
+        self.begin_acc = tf.reduce_sum(
+            tf.sign(tf.cast(tf.equal(tf.argmax(answer_s, 1, output_type = tf.int32), tf.argmax(p1, -1, output_type = tf.int32)),
+                            dtype = 'float')))
+        self.end_acc = tf.reduce_sum(
+            tf.sign(tf.cast(tf.equal(tf.argmax(answer_e, 1, output_type = tf.int32), tf.argmax(p2, -1, output_type = tf.int32)),
+                            dtype = 'float')))
 
     @staticmethod
     def softmax_with_mask(logits, axis, mask, epsilon = 10e-8, name = None):  # 1. normalize 2. softmax
