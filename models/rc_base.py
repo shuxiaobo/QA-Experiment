@@ -131,6 +131,8 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
         self.patience, self.best_val_acc = self.args.patience, 0.
         # Start training
         corrects_in_epoch, samples_in_epoch, loss_in_epoch = 0, 0, 0
+
+        begin_acc, end_acc = 0., 0.
         batch_num = self.train_nums // batch_size
         logger("Train on {} batches, {} samples per batch, {} total.".format(batch_num, batch_size, self.train_nums))
 
@@ -150,6 +152,9 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
             corrects_in_epoch += corrects_in_batch
             loss_in_epoch += loss * samples
             samples_in_epoch += samples
+
+            end_acc += end_acc
+            begin_acc += begin_acc
 
             # logger
             if step % self.args.print_every_n == 0:

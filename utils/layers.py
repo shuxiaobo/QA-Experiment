@@ -106,7 +106,7 @@ class MatchAddCell(RNNCell):
             a = tf.nn.softmax(exp_mask(linear(f, 1, True, squeeze = True, scope = 'a'), q_mask))  # [N, JQ]
             q = tf.reduce_sum(qs * tf.expand_dims(a, -1), 1)
             z = tf.concat([x, q], 1)  # [N, 2d]
-            return self._cell(z, state[1])
+            return self._cell(z, h_prev)
 
 
 def linear(args, output_size, bias, bias_start = 0.0, scope = None, squeeze = False, wd = 0.0, input_keep_prob = 1.0,

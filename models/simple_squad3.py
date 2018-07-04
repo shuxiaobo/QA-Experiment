@@ -122,37 +122,50 @@ class SimpleModelSQuad3(RcBase):
         #     q_emb_self_atten = tf.reduce_sum(tf.einsum('bij,jk->bik', q_emb_bi, q_atten_w), -1)
         #     d_emb_att = tf.expand_dims(tf.nn.tanh(d_att + d_emb_self_atten) * d_mask, -1)
         #     q_emb_att = tf.expand_dims(tf.nn.tanh(q_att + q_emb_self_atten) * q_mask, -1)
-        #     self.d_emb_self_atten = d_emb_self_atten
-        #     self.d_att = d_att
         #     # self.sess.run([tf.squeeze(self.d_emb_att), self.d_emb_bi_attened_pre, self.d_att_rnn_out, self.d_att_rnn_out2, self.d_emb_bi_attened], data)
-        #     self.d_emb_att = d_emb_att
-        #     d_emb_bi_attened = d_emb_bi * d_emb_att
-        #     q_emb_bi_attened = q_emb_bi * q_emb_att
-        #     self.d_emb_bi_attened_pre = d_emb_bi_attened  # 这一层有问题，结果太小
+        #     d_emb_bi = d_emb_bi * d_emb_att
+        #     q_emb_bi = q_emb_bi * q_emb_att
+        # #     self.d_emb_bi_attened_pre = d_emb_bi_attened  # 这一层有问题，结果太小
         with tf.variable_scope('attention_dq'):
-            atten_q, atten_d = context_query_attention(context = d_emb_bi, query = q_emb_bi, scope = 'context_query_att',
-                                                                reuse = None)
-            d_emb_bi_attened = tf.multiply(d_emb_bi, atten_d)
-            q_emb_bi_attened = q_emb_bi
+            atten_q2d, atten_d2q = context_query_attention(context = d_emb_bi, query = q_emb_bi, scope = 'context_query_att',
+                                                       reuse = None)
+            d_emb_bi_con = tf.concat([tf.add(d_emb_bi, atten_d2q), tf.add(d_emb_bi, atten_q2d), d_emb_bi], axis = -1)
+            d_emb_bi_attened = d_emb_bi_con
+            # attented_d_w = tf.get_variable('attented_d_w', shape = [d_emb_bi_con.get_shape()[-1], d_emb_bi.get_shape()[-1]])
+            # d_emb_bi_attened = tf.einsum('bij,jk->bik', d_emb_bi_con, attented_d_w)
+            atten_q2d, atten_d2q = context_query_attention(context =q_emb_bi , query = d_emb_bi, scope = 'context_query_att',
+                                                           reuse = True)
+            q_emb_bi_con = tf.concat([tf.add(q_emb_bi, atten_d2q), tf.add(q_emb_bi, atten_q2d), q_emb_bi], axis = -1)
+            q_emb_bi_attened = q_emb_bi_con
 
-        with tf.variable_scope("interact") as scp:
+            # 只用这一层 + pointer, 学不到东西。
+
+        """
+        貌似loss由整个模型的结构和lr决定，acc由一些细节决定
+        """
+        with tf.variable_scope("match_rnn") as scp:
+            # Match RNN via tf.scan
             # f_cell = MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len)
             # f_init_state = f_cell.zero_state(tf.shape(d_emb_bi)[0], dtype = tf.float32)
             # b_cell = MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len)
             # b_init_state = b_cell.zero_state(tf.shape(d_emb_bi)[0], dtype = tf.float32)
-            reshaped_q = tf.reshape(q_emb_bi_attened, [tf.shape(q_emb_bi_attened)[0], self.q_len * hidden_size * 2])
+            # reshaped_q = tf.reshape(q_emb_bi_attened, [tf.shape(q_emb_bi_attened)[0], -1])
             # d_att_rnn_out, _ = tf.scan(
             #     fn = lambda pre, x: f_cell(tf.concat([tf.reshape(x, [-1, d_emb_bi_attened.get_shape()[-1].value]), q_mask, reshaped_q], -1),
-            #                                pre, scope = 'f'),
+            #                                pre[1], scope = 'fo'),
             #     elems = [tf.transpose(d_emb_bi_attened, perm = [1, 0, 2])],
-            #     initializer = (tf.zeros(tf.shape(f_init_state)), f_init_state))
+            #     initializer = (tf.zeros(tf.shape(f_init_state[1])), f_init_state),swap_memory=True)
             # d_att_rnn_out2, _ = tf.scan(
             #     fn = lambda pre, x: b_cell(tf.concat([tf.reshape(x, [-1, d_emb_bi_attened.get_shape()[-1].value]), q_mask, reshaped_q], -1),
-            #                                pre, scope = 'b'),
+            #                                pre[1], scope = 'b'),
             #     elems = [tf.reverse_sequence(tf.transpose(d_emb_bi_attened, perm = [1, 0, 2]), d_real_len,
             #                                  seq_axis = 0,
             #                                  batch_axis = 1)],
-            #     initializer = (tf.zeros(tf.shape(b_init_state)), b_init_state))
+            #     initializer = (tf.zeros(tf.shape(b_init_state[1])), b_init_state), swap_memory=True)
+            # d_emb_bi_attened = tf.concat([d_att_rnn_out, d_att_rnn_out2], -1)
+            # d_emb_bi_attened = tf.transpose(d_emb_bi_attened, perm = [1, 0, 2])
+
+            # 普通的RNN
             # d_atten_cell_f = MultiRNNCell(
             #     cells = [DropoutWrapper(cell(hidden_size), output_keep_prob = 1.) for _ in range(num_layers)])
             # d_atten_cell_b = MultiRNNCell(
@@ -164,6 +177,9 @@ class SimpleModelSQuad3(RcBase):
             #                                                    sequence_length = d_real_len, swap_memory = True, dtype = "float32", )
             # d_emb_bi_attened = tf.concat(d_att_rnn_out, -1)
             # d_emb_bi_attened = tf.transpose(d_emb_bi_attened, perm = [1, 0, 2])
+
+            # Match RNN via dynamic rnn
+            reshaped_q = tf.reshape(q_emb_bi_attened, [tf.shape(q_emb_bi_attened)[0], q_emb_bi_attened.get_shape()[1] *  q_emb_bi_attened.get_shape()[2]])
             d_atten_cell_f = MultiRNNCell(
                 cells = [
                     DropoutWrapper(MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len), output_keep_prob = 1.)
@@ -180,49 +196,21 @@ class SimpleModelSQuad3(RcBase):
                                                                sequence_length = d_real_len, swap_memory = True, dtype = "float32", )
             d_emb_bi_attened = tf.concat(d_att_rnn_out, -1)
 
-            # self.d_att_rnn_out = d_att_rnn_out
-            # self.d_att_rnn_out2 = d_att_rnn_out2
-            # d_emb_bi_attened = tf.transpose(d_emb_bi_attened, perm = [1, 0, 2])
+            self.d_att_rnn_out = d_att_rnn_out
             self.d_emb_bi_attened = d_emb_bi_attened
 
         with tf.variable_scope('pointer') as scp:
             pointer = ptr_net(batch = tf.shape(q_last_states_con)[0], hidden = q_last_states_con.get_shape().as_list(
             )[-1], keep_prob = self.args.keep_prob, is_train = tf.constant(True, dtype = tf.bool, shape = []))
             p1, p2 = pointer(q_last_states_con, d_emb_bi_attened, hidden_size, d_mask)
-            p1 = tf.nn.softmax(p1)
-            p2 = tf.nn.softmax(p2)
-        #
-        # with tf.variable_scope('answer') as scp:
-        #     answer_s_w = tf.get_variable('answer_s_w', shape = [q_emb_bi_attened.get_shape()[1], 1])
-        #     answer_e_w = tf.get_variable('answer_e_w', shape = [q_emb_bi_attened.get_shape()[1], 1])
-        #     prob1 = self.softmax_with_mask(tf.reduce_sum(tf.einsum('bij,jk->bik', tf.einsum('bij,bjk->bik', d_emb_bi_attened,
-        #                                                                                     tf.transpose(q_emb_bi_attened, perm = [0, 2,
-        #                                                                                                                            1])) * tf.expand_dims(
-        #         d_mask, -1), answer_s_w), -1), axis = -1, mask = d_mask)
-        #     prob2 = self.softmax_with_mask(tf.reduce_sum(tf.einsum('bij,jk->bik', tf.einsum('bij,bjk->bik', d_emb_bi_attened,
-        #                                                                                     tf.transpose(q_emb_bi_attened, perm = [0, 2,
-        #                                                                                                                            1])) * tf.expand_dims(
-        #         d_mask, -1), answer_e_w), -1), axis = -1, mask = d_mask)
-        #     # answer_s_w = tf.get_variable('answer_s_w', shape = [d_emb_bi.get_shape()[-1], q_emb_bi.get_shape()[-1]])
-        #     # answer_e_w = tf.get_variable('answer_e_w', shape = [d_emb_bi.get_shape()[-1], q_emb_bi.get_shape()[-1]])
-        #     # prob1 = self.softmax_with_mask(tf.reduce_sum(tf.einsum('bij,bjk->bik', tf.einsum('bij,jk->bik', d_emb_bi_attened, answer_s_w),
-        #     #                                                        tf.transpose(q_emb_bi_attened, perm = [0, 2, 1])) * tf.expand_dims(
-        #     #     d_mask, -1), -1), axis = -1, mask = d_mask)
-        #     # prob2 = self.softmax_with_mask(tf.reduce_sum(tf.einsum('bij,bjk->bik', tf.einsum('bij,jk->bik', d_emb_bi_attened, answer_e_w),
-        #     #                                                        tf.transpose(q_emb_bi_attened, perm = [0, 2, 1])) * tf.expand_dims(
-        #     #     d_mask, -1), -1), axis = -1, mask = d_mask)
-        #
-        #     epsilon = tf.convert_to_tensor(_EPSILON, prob1.dtype.base_dtype, name = "epsilon")
-        #     prob1 = prob1 + (1 - d_mask) # 这里应该这么做，应该提早让模型学到东西，而不是后面人工挽救
-        #     prob2 = prob2 + (1 - d_mask)
-        #     p1 = tf.clip_by_value(prob1, epsilon, 1. - epsilon)
-        #     p2 = tf.clip_by_value(prob2, epsilon, 1. - epsilon)
+            self.p1, self.p2 = p1, p2
+        losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.p1, labels = tf.argmax(answer_s, -1))
+        losses += tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.p2, labels = tf.argmax(answer_e, -1))
+        self.loss = tf.reduce_mean(losses)
 
-        self.p1 = p1
-        self.p2 = p2
-        # 如果使用log，那mask必须为1
-        self.loss = -tf.reduce_mean(tf.reduce_sum(tf.multiply(tf.log(p1), answer_s) + tf.multiply(tf.log(p2), answer_e)))
-
+        # self.loss = -tf.reduce_mean(tf.reduce_sum(tf.multiply(tf.log(p1), answer_s) + tf.multiply(tf.log(p2), answer_e)))
+        self.answer_s = answer_s
+        self.answer_e = answer_e  # self.sess.run([tf.equal(tf.argmax(self.answer_s, 1), tf.argmax(self.p1, 1)), tf.equal(tf.argmax(self.answer_e, 1), tf.argmax(self.p2, 1)),tf.argmax(self.p1, 1),tf.argmax(self.answer_s, 1), self.p1],data)
         self.correct_prediction = tf.reduce_sum(
             tf.sign(tf.cast(
                 tf.logical_and(

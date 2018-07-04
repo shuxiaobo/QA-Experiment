@@ -72,7 +72,7 @@ class NLPBase(object):
         # -----------------------------------------------------------------------------------------------------------
         group1 = parser.add_argument_group("1.Basic options")
         # basis argument
-        group1.add_argument("--debug", default=False, type=str2bool, help="is debug mode on or off")
+        group1.add_argument("--debug", default=True, type=str2bool, help="is debug mode on or off")
 
         group1.add_argument("--train", default=True, type=str2bool, help="train or not")
 
@@ -133,7 +133,7 @@ class NLPBase(object):
 
         group3.add_argument("--grad_clipping", default=10, type=int, help="the threshold value of gradient clip")
 
-        group3.add_argument("--lr", default=0.002, type=float, help="learning rate")
+        group3.add_argument("--lr", default=1, type=float, help="learning rate")
 
         group3.add_argument("--keep_prob", default=0.5, type=float, help="dropout,percentage to keep during training")
 
