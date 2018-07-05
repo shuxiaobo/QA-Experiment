@@ -87,8 +87,6 @@ class SimpleModelSQuad3(RcBase):
                                                                      dtype = "float32", parallel_iterations = None,
                                                                      swap_memory = True, time_major = False, scope = None)
 
-            # last_states -> (output_state_fw, output_state_bw)
-            # q_emb_bi = tf.concat([q_last_states[0][-1], q_last_states[1][-1]], axis = -1)
             q_emb_bi = tf.concat(outputs, axis = -1)
             if self.args.use_lstm:
                 q_last_states_con = tf.concat([q_last_states[0][-1][-1], q_last_states[1][-1][-1]], axis = -1)
@@ -145,25 +143,25 @@ class SimpleModelSQuad3(RcBase):
         """
         with tf.variable_scope("match_rnn") as scp:
             # Match RNN via tf.scan
-            # f_cell = MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len)
-            # f_init_state = f_cell.zero_state(tf.shape(d_emb_bi)[0], dtype = tf.float32)
-            # b_cell = MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len)
-            # b_init_state = b_cell.zero_state(tf.shape(d_emb_bi)[0], dtype = tf.float32)
-            # reshaped_q = tf.reshape(q_emb_bi_attened, [tf.shape(q_emb_bi_attened)[0], -1])
-            # d_att_rnn_out, _ = tf.scan(
-            #     fn = lambda pre, x: f_cell(tf.concat([tf.reshape(x, [-1, d_emb_bi_attened.get_shape()[-1].value]), q_mask, reshaped_q], -1),
-            #                                pre[1], scope = 'fo'),
-            #     elems = [tf.transpose(d_emb_bi_attened, perm = [1, 0, 2])],
-            #     initializer = (tf.zeros(tf.shape(f_init_state[1])), f_init_state),swap_memory=True)
-            # d_att_rnn_out2, _ = tf.scan(
-            #     fn = lambda pre, x: b_cell(tf.concat([tf.reshape(x, [-1, d_emb_bi_attened.get_shape()[-1].value]), q_mask, reshaped_q], -1),
-            #                                pre[1], scope = 'b'),
-            #     elems = [tf.reverse_sequence(tf.transpose(d_emb_bi_attened, perm = [1, 0, 2]), d_real_len,
-            #                                  seq_axis = 0,
-            #                                  batch_axis = 1)],
-            #     initializer = (tf.zeros(tf.shape(b_init_state[1])), b_init_state), swap_memory=True)
-            # d_emb_bi_attened = tf.concat([d_att_rnn_out, d_att_rnn_out2], -1)
-            # d_emb_bi_attened = tf.transpose(d_emb_bi_attened, perm = [1, 0, 2])
+            f_cell = MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len)
+            f_init_state = f_cell.zero_state(tf.shape(d_emb_bi)[0], dtype = tf.float32)
+            b_cell = MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len)
+            b_init_state = b_cell.zero_state(tf.shape(d_emb_bi)[0], dtype = tf.float32)
+            reshaped_q = tf.reshape(q_emb_bi_attened, [tf.shape(q_emb_bi_attened)[0], -1])
+            d_att_rnn_out, _ = tf.scan(
+                fn = lambda pre, x: f_cell(tf.concat([tf.reshape(x, [-1, d_emb_bi_attened.get_shape()[-1].value]), q_mask, reshaped_q], -1),
+                                           pre[1], scope = 'fo'),
+                elems = [tf.transpose(d_emb_bi_attened, perm = [1, 0, 2])],
+                initializer = (tf.zeros(tf.shape(f_init_state[1])), f_init_state),swap_memory=True)
+            d_att_rnn_out2, _ = tf.scan(
+                fn = lambda pre, x: b_cell(tf.concat([tf.reshape(x, [-1, d_emb_bi_attened.get_shape()[-1].value]), q_mask, reshaped_q], -1),
+                                           pre[1], scope = 'b'),
+                elems = [tf.reverse_sequence(tf.transpose(d_emb_bi_attened, perm = [1, 0, 2]), d_real_len,
+                                             seq_axis = 0,
+                                             batch_axis = 1)],
+                initializer = (tf.zeros(tf.shape(b_init_state[1])), b_init_state), swap_memory=True)
+            d_emb_bi_attened = tf.concat([d_att_rnn_out, d_att_rnn_out2], -1)
+            d_emb_bi_attened = tf.transpose(d_emb_bi_attened, perm = [1, 0, 2])
 
             # 普通的RNN
             # d_atten_cell_f = MultiRNNCell(
@@ -179,22 +177,22 @@ class SimpleModelSQuad3(RcBase):
             # d_emb_bi_attened = tf.transpose(d_emb_bi_attened, perm = [1, 0, 2])
 
             # Match RNN via dynamic rnn
-            reshaped_q = tf.reshape(q_emb_bi_attened, [tf.shape(q_emb_bi_attened)[0], q_emb_bi_attened.get_shape()[1] *  q_emb_bi_attened.get_shape()[2]])
-            d_atten_cell_f = MultiRNNCell(
-                cells = [
-                    DropoutWrapper(MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len), output_keep_prob = 1.)
-                    for _ in range(num_layers)])
-            d_atten_cell_b = MultiRNNCell(
-                cells = [
-                    DropoutWrapper(MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len), output_keep_prob = 1.)
-                    for _ in range(num_layers)])
-            d_att_rnn_out, _ = tf.nn.bidirectional_dynamic_rnn(cell_bw = d_atten_cell_b, cell_fw = d_atten_cell_f,
-                                                               inputs = tf.concat([d_emb_bi_attened,
-                                                                                   tf.tile(tf.expand_dims(q_mask, 1), [1, self.d_len, 1]),
-                                                                                   tf.tile(tf.expand_dims(reshaped_q, 1),
-                                                                                           [1, self.d_len, 1])], -1),
-                                                               sequence_length = d_real_len, swap_memory = True, dtype = "float32", )
-            d_emb_bi_attened = tf.concat(d_att_rnn_out, -1)
+            # reshaped_q = tf.reshape(q_emb_bi_attened, [tf.shape(q_emb_bi_attened)[0], q_emb_bi_attened.get_shape()[1] *  q_emb_bi_attened.get_shape()[2]])
+            # d_atten_cell_f = MultiRNNCell(
+            #     cells = [
+            #         DropoutWrapper(MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len), output_keep_prob = 1.)
+            #         for _ in range(num_layers)])
+            # d_atten_cell_b = MultiRNNCell(
+            #     cells = [
+            #         DropoutWrapper(MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len), output_keep_prob = 1.)
+            #         for _ in range(num_layers)])
+            # d_att_rnn_out, _ = tf.nn.bidirectional_dynamic_rnn(cell_bw = d_atten_cell_b, cell_fw = d_atten_cell_f,
+            #                                                    inputs = tf.concat([d_emb_bi_attened,
+            #                                                                        tf.tile(tf.expand_dims(q_mask, 1), [1, self.d_len, 1]),
+            #                                                                        tf.tile(tf.expand_dims(reshaped_q, 1),
+            #                                                                                [1, self.d_len, 1])], -1),
+            #                                                    sequence_length = d_real_len, swap_memory = True, dtype = "float32", )
+            # d_emb_bi_attened = tf.concat(d_att_rnn_out, -1)
 
             self.d_att_rnn_out = d_att_rnn_out
             self.d_emb_bi_attened = d_emb_bi_attened
@@ -204,27 +202,31 @@ class SimpleModelSQuad3(RcBase):
             )[-1], keep_prob = self.args.keep_prob, is_train = tf.constant(True, dtype = tf.bool, shape = []))
             p1, p2 = pointer(q_last_states_con, d_emb_bi_attened, hidden_size, d_mask)
             self.p1, self.p2 = p1, p2
-        losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.p1, labels = tf.argmax(answer_s, -1))
-        losses += tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.p2, labels = tf.argmax(answer_e, -1))
+        self.answer_s = answer_s
+        self.answer_e = answer_e  # self.sess.run([tf.equal(tf.argmax(self.answer_s, 1), tf.argmax(self.p1, 1)), tf.equal(tf.argmax(self.answer_e, 1), tf.argmax(self.p2, 1)),tf.argmax(self.p1, 1),tf.argmax(self.answer_s, 1), self.p1],data)
+        losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.p1, labels = tf.argmax(self.answer_s, -1))
+        losses += tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.p2, labels = tf.argmax(self.answer_e, -1))
         self.loss = tf.reduce_mean(losses)
 
         # self.loss = -tf.reduce_mean(tf.reduce_sum(tf.multiply(tf.log(p1), answer_s) + tf.multiply(tf.log(p2), answer_e)))
-        self.answer_s = answer_s
-        self.answer_e = answer_e  # self.sess.run([tf.equal(tf.argmax(self.answer_s, 1), tf.argmax(self.p1, 1)), tf.equal(tf.argmax(self.answer_e, 1), tf.argmax(self.p2, 1)),tf.argmax(self.p1, 1),tf.argmax(self.answer_s, 1), self.p1],data)
+
         self.correct_prediction = tf.reduce_sum(
             tf.sign(tf.cast(
                 tf.logical_and(
-                    tf.equal(tf.argmax(answer_s, 1), tf.argmax(p1, 1)),
-                    tf.equal(tf.argmax(answer_e, 1), tf.argmax(p2, 1))
+                    tf.equal(tf.argmax(self.answer_s, 1, output_type = tf.int32), tf.argmax(self.p1, -1, output_type = tf.int32)),
+                    tf.equal(tf.argmax(self.answer_e, 1, output_type = tf.int32), tf.argmax(self.p2, -1, output_type = tf.int32))
                 ), dtype = 'float'
             )))
 
         self.begin_acc = tf.reduce_sum(
-            tf.sign(tf.cast(tf.equal(tf.argmax(answer_s, 1, output_type = tf.int32), tf.argmax(p1, -1, output_type = tf.int32)),
-                            dtype = 'float')))
+            tf.sign(
+                tf.cast(tf.equal(tf.argmax(self.answer_s, 1, output_type = tf.int32), tf.argmax(self.p1, -1, output_type = tf.int32)),
+                        dtype = 'float')))
         self.end_acc = tf.reduce_sum(
-            tf.sign(tf.cast(tf.equal(tf.argmax(answer_e, 1, output_type = tf.int32), tf.argmax(p2, -1, output_type = tf.int32)),
-                            dtype = 'float')))
+            tf.sign(
+                tf.cast(tf.equal(tf.argmax(self.answer_e, 1, output_type = tf.int32), tf.argmax(self.p2, -1, output_type = tf.int32)),
+                        dtype = 'float')))
+
 
     @staticmethod
     def softmax_with_mask(logits, axis, mask, epsilon = 10e-8, name = None):  # 1. normalize 2. softmax

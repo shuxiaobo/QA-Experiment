@@ -17,6 +17,18 @@ def default_tokenizer(sentence):
     return nltk.word_tokenize(sentence.lower())
 
 
+def process_tokens(temp_tokens):
+    tokens = []
+    for token in temp_tokens:
+        flag = False
+        l = ("-", "\u2212", "\u2014", "\u2013", "/", "~", '"', "'", "\u201C", "\u2019", "\u201D", "\u2018", "\u00B0")
+        # \u2013 is en-dash. Used for number to nubmer
+        # l = ("-", "\u2212", "\u2014", "\u2013")
+        # l = ("\u2013",)
+        tokens.extend(re.split("([{}])".format("".join(l)), token))
+    return tokens
+
+
 # noinspection PyAttributeOutsideInit
 class RCDataset(object, metaclass = abc.ABCMeta):
     def __init__(self, args):
@@ -137,7 +149,7 @@ class RCDataset(object, metaclass = abc.ABCMeta):
             word_list:      {"I": 1, "have": 2, "a": 4, "dog": 7"}
             return:         [1, 2, 4, 7]
         """
-        return [word_dict.get(token, self.UNK_ID) for token in tokenizer(sentence)]
+        return [word_dict.get(token, self.UNK_ID) for token in process_tokens(tokenizer(sentence))]
 
     def words_to_char_ids(self, sentence, char_dict, tokenizer = default_tokenizer):
         """
@@ -146,7 +158,7 @@ class RCDataset(object, metaclass = abc.ABCMeta):
             word_list:      {"I": 1, "h": 2, "a": 4, "v":3, "e":5, "dog": 7"}
             return:         [[1], [2, 4, 3, 5],]
         """
-        return [[char_dict.get(ch, self._CHAR_UNK) for ch in word] for word in tokenizer(sentence)]
+        return [[char_dict.get(ch, self._CHAR_UNK) for ch in word] for word in process_tokens(tokenizer(sentence))]
 
     def get_embedding_matrix(self, vocab_file, is_char_embedding = False):
         """
@@ -176,7 +188,7 @@ class RCDataset(object, metaclass = abc.ABCMeta):
         char_counter = old_counter if old_counter else Counter()
         with gfile.FastGFile(data_file) as f:
             for line in f:
-                tokens = tokenizer(line.rstrip("\n"))
+                tokens = process_tokens(tokenizer(line.rstrip("\n")))
                 char_counter.update([char for word in tokens for char in word])
 
         # summary statistics
@@ -201,7 +213,7 @@ class RCDataset(object, metaclass = abc.ABCMeta):
                 counter += 1
                 if max_count and counter > max_count:
                     break
-                tokens = tokenizer(line.rstrip('\n'))
+                tokens = [process_tokens(t) for t in tokenizer(line.rstrip('\n'))]
                 word_counter.update(tokens)
                 if counter % 100000 == 0:
                     logger("Process line %d Done." % counter)

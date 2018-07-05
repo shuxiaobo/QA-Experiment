@@ -24,5 +24,5 @@ def get_model_class(model_name):
 
 if __name__ == '__main__':
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = "3"
-    model = get_model_class('SimpleModelSQuad3')
+    model = get_model_class('SimpleModelSQuad4')
     model.execute()

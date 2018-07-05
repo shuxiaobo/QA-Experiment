@@ -142,28 +142,29 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
             step = self.sess.run(self.step)
             # on Epoch start
             if step % batch_num == 0:
-                corrects_in_epoch, samples_in_epoch, loss_in_epoch = 0, 0, 0
+                end_acc_in_epoch, begin_acc_in_epoch, corrects_in_epoch, samples_in_epoch, loss_in_epoch = 0, 0, 0, 0, 0
                 logger("{}Epoch : {}{}".format("-" * 40, step // batch_num + 1, "-" * 40))
                 self.dataset.shuffle()
 
             data, samples = self.get_batch_data("train", step % batch_num)
-            loss, _, corrects_in_batch, begin_acc, end_acc = self.sess.run([self.loss, self.train_op, self.correct_prediction, self.begin_acc, self.end_acc],
+            loss, _, corrects, begin_acc, end_acc = self.sess.run([self.loss, self.train_op, self.correct_prediction, self.begin_acc, self.end_acc],
                                                        feed_dict=data)
-            corrects_in_epoch += corrects_in_batch
+            print(corrects)
+            corrects_in_epoch += corrects
             loss_in_epoch += loss * samples
             samples_in_epoch += samples
 
-            end_acc += end_acc
-            begin_acc += begin_acc
+            end_acc_in_epoch += end_acc
+            begin_acc_in_epoch += begin_acc
 
-            # logger
+            # logger self.sess.run([self.result_s,self.result_e],data)
             if step % self.args.print_every_n == 0:
                 logger("Samples : {}/{}.\tStep : {}/{}.\tLoss : {:.4f}.\tAccuracy : {:.4f}.\tBegin_acc:{:.4f}.\tEnd_acc:{:.4f}".format(
                     samples_in_epoch, self.train_nums,
                     step % batch_num, batch_num,
-                    loss_in_epoch / samples_in_epoch, corrects_in_epoch / samples_in_epoch, begin_acc/ samples_in_epoch, end_acc/ samples_in_epoch))
+                    loss_in_epoch / samples_in_epoch, corrects_in_epoch / samples_in_epoch, begin_acc_in_epoch / samples_in_epoch, end_acc_in_epoch / samples_in_epoch))
                 tf.summary.scalar('cross_entropy', loss)
-                tf.summary.scalar('accuracy', corrects_in_batch)
+                tf.summary.scalar('accuracy', corrects)
                 merged_summary = tf.summary.merge_all()
                 s = self.sess.run(merged_summary, feed_dict = data)
                 self.writer.add_summary(s, step)

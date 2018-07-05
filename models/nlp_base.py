@@ -98,7 +98,7 @@ class NLPBase(object):
         group2.add_argument("--dataset", default="SQuAD", choices=sys.modules['dataset'].__all__, type=str,
                             help='type of the dataset to load')
 
-        group2.add_argument("--embedding_file", default="data/glove.6B/glove.6B.300d.txt",
+        group2.add_argument("--embedding_file", default="data/glove.6B/glove.6B.50d.txt",
                             type=str_or_none, help="pre-trained embedding file")
 
         group2.add_argument("--max_vocab_num", default=100000, type=int, help="the max number of words in vocabulary")
@@ -127,13 +127,13 @@ class NLPBase(object):
 
         group3.add_argument("--char_embedding_dim", default=100, type=int, help="dimension of char embeddings")
 
-        group3.add_argument("--embedding_dim", default=300, type=int, help="dimension of word embeddings")
+        group3.add_argument("--embedding_dim", default=50, type=int, help="dimension of word embeddings")
 
         group3.add_argument("--hidden_size", default=64, type=int, help="RNN hidden size")
 
         group3.add_argument("--grad_clipping", default=10, type=int, help="the threshold value of gradient clip")
 
-        group3.add_argument("--lr", default=1, type=float, help="learning rate")
+        group3.add_argument("--lr", default=0.0002, type=float, help="learning rate")
 
         group3.add_argument("--keep_prob", default=0.5, type=float, help="dropout,percentage to keep during training")
 

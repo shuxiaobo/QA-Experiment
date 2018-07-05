@@ -112,10 +112,9 @@ class SimpleModelSQuad4(RcBase):
             logger("d_encoded_bf shape {}".format(d_emb_bi.get_shape()))
 
         with tf.variable_scope('attention_dq'):
-            atten_d, atten_q = context_query_attention(context = d_emb_bi, query = q_emb_bi, scope = 'context_query_att',
-                                                                reuse = None)
-            # computing c dot a
-            attened_d = tf.multiply(d_emb_bi, atten_d)
+            atten_q2d, atten_d2q = context_query_attention(context = d_emb_bi, query = q_emb_bi, scope = 'context_query_att',
+                                                           reuse = None)
+            attened_d = tf.concat([tf.multiply(d_emb_bi, atten_d2q), tf.multiply(d_emb_bi, atten_q2d), d_emb_bi], axis = -1)
             # computing c dot b
             # atten_d_q = tf.einsum('bij,bjk->bik', d_emb_bi, tf.transpose(q_emb_bi, perm = [0, 2, 1]))
             # atten_d = tf.reduce_sum(atten_d_q, axis = -1)
@@ -123,7 +122,6 @@ class SimpleModelSQuad4(RcBase):
             # there should be [None, seq_len, hidden_size]
             # attened_d = tf.multiply(d_emb_bi, tf.expand_dims(attened_d_masked,
             #                                                  -1))  # self.sess.run([self.atten_d, self.attened_d, self.result_s[-1], self.result_e[-1]], data)
-        self.atten_d = atten_d
         self.attened_d = attened_d
         q_emb_rl = q_last_states_con
         memory = tf.concat([q_last_states[0][-1][-1], q_last_states[1][-1][-1]], axis = -1)
@@ -145,17 +143,16 @@ class SimpleModelSQuad4(RcBase):
             # Cause by GPU memory full
             # update memory: use the question and the context to update
             with tf.variable_scope('reinforce', reuse = tf.AUTO_REUSE) as scp:
-                context_and_q = tf.concat([x_context, q_emb_rl], axis = -1)
-                # rl_w = tf.get_variable(name = 'w', shape = [context_and_q.get_shape()[-1], 1])
-                # rl_b = tf.get_variable(name = 'b', shape = [1])
-                # if activ == 'tanh':
-                #     rl_mul_context_q = tf.tanh(tf.matmul(context_and_q, rl_w))
-                # else:
-                #     rl_mul_context_q = tf.nn.relu(tf.matmul(context_and_q, rl_w))
-                # out = tf.nn.softmax(
-                #     logits = tf.add(rl_mul_context_q, rl_b))  # b * 1, Note: should use the bias here, while select_prob == 0 !!!!!
+                context_and_q = tf.concat([x_context, hidden_d, q_emb_rl], axis = -1)
+                rl_w = tf.get_variable(name = 'w', shape = [context_and_q.get_shape()[-1], context_and_q.get_shape()[-1]])
+                rl_b = tf.get_variable(name = 'b', shape = [1])
+                if activ == 'tanh':
+                    rl_mul_context_q = tf.tanh(tf.matmul(context_and_q, rl_w))
+                else:
+                    rl_mul_context_q = tf.nn.relu(tf.matmul(context_and_q, rl_w))
+                out = tf.nn.tanh(rl_mul_context_q)  # b * 1, Note: should use the bias here, while select_prob == 0 !!!!!
                 memory_update_w = tf.get_variable("memory_update_w", shape = [context_and_q.get_shape()[-1], memory.get_shape()[-1]])
-                memory = tf.add(tf.nn.tanh(tf.matmul(context_and_q, memory_update_w)), memory)
+                memory = tf.multiply(tf.nn.tanh(tf.matmul(out, memory_update_w)), memory)
             # inference : use the new memory to inference the answer
             with tf.variable_scope('inference', reuse = tf.AUTO_REUSE) as scp:
                 context = tf.concat([memory, hidden_d, q_emb_rl], -1)
@@ -166,14 +163,14 @@ class SimpleModelSQuad4(RcBase):
                     axis = -1)
                 # pre_anw = tf.reduce_sum(
                 #     tf.multiply(tf.transpose(candi_embed, [1, 0, 2]), tf.nn.relu(tf.matmul(context, infer_bilinear_start))), axis = -1)
-                pre_anw_pro_s = tf.nn.softmax(pre_anw, dim = -1)
+                pre_anw_pro_s = pre_anw
                 infer_bilinear_end = tf.get_variable('infer_bilinear_end', shape = [context.get_shape()[-1], candi_embed.get_shape()[-1]])
                 pre_anw = tf.squeeze(
                     tf.einsum('bij,bjk->bik', candi_embed, tf.expand_dims(tf.matmul(context, infer_bilinear_end), -1)),
                     axis = -1)
                 # pre_anw = tf.reduce_sum(
                 #     tf.multiply(tf.transpose(candi_embed, [1, 0, 2]), tf.nn.relu(tf.matmul(context, infer_bilinear_end))), axis = -1)
-                pre_anw_pro_e = tf.nn.softmax(pre_anw, dim = -1)
+                pre_anw_pro_e = pre_anw
                 # pre_anw_pro = self.softmax_with_mask(tf.transpose(pre_anw), mask = d_mask, axis = -1)
 
             # with tf.variable_scope('interence_end', reuse = tf.AUTO_REUSE):
@@ -184,62 +181,38 @@ class SimpleModelSQuad4(RcBase):
                                                       elems = [tf.transpose(attened_d, perm = [1, 0, 2])],
                                                       initializer = [memory, m_state, result_ss, result_ee], name = 'scan',
                                                       swap_memory = True)
-        result_s = tf.reduce_sum(result_s, 0)
-        result_e = tf.reduce_sum(result_e, 0)
-        epsilon = tf.convert_to_tensor(_EPSILON, tf.float32, name = "epsilon")
-        result_prob_s = tf.clip_by_value(tf.nn.relu(result_s) / tf.reduce_sum(tf.nn.relu(result_s)), epsilon, 1. - epsilon)
-        result_prob_e = tf.clip_by_value(tf.nn.relu(result_e) / tf.reduce_sum(tf.nn.relu(result_e)), epsilon, 1. - epsilon)
-        self.logits_start = result_prob_s
-        self.logits_end = result_prob_e
-        self.result_s = result_s
-        self.result_e = result_e
+        # result_s = tf.reduce_sum(result_s, 0)
+        # result_e = tf.reduce_sum(result_e, 0)
+        # epsilon = tf.convert_to_tensor(_EPSILON, tf.float32, name = "epsilon")
+        # result_prob_s = tf.clip_by_value(tf.nn.relu(result_s) / tf.reduce_sum(tf.nn.relu(result_s)), epsilon, 1. - epsilon)
+        # result_prob_e = tf.clip_by_value(tf.nn.relu(result_e) / tf.reduce_sum(tf.nn.relu(result_e)), epsilon, 1. - epsilon)
+        # self.logits_start = result_prob_s
+        # self.logits_end = result_prob_e
+        self.result_s = result_s[-1]
+        self.result_e = result_e[-1]
+        self.answer_s = answer_s
+        self.answer_e = answer_e
+
+        losses = tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.result_s, labels = tf.argmax(answer_s, -1))
+        losses += tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.result_e, labels = tf.argmax(answer_e, -1))
+        self.loss = tf.reduce_mean(losses)
         # 如果使用log，那mask必须为1
-        self.loss = -tf.reduce_mean( tf.reduce_sum(tf.multiply(tf.log(result_prob_s), answer_s) + tf.multiply(tf.log(result_prob_e), answer_e)))
+        # self.loss = -tf.reduce_mean( tf.reduce_sum(tf.multiply(tf.log(result_prob_s), answer_s) + tf.multiply(tf.log(result_prob_e), answer_e)))
         # self.add_loss(answer_s, answer_e)
         self.correct_prediction = tf.reduce_sum(
             tf.sign(tf.cast(
                 tf.logical_and(
-                    tf.equal(tf.argmax(answer_s, 1, output_type = tf.int32), tf.argmax(result_prob_s, -1, output_type = tf.int32)),
-                    tf.equal(tf.argmax(answer_e, 1, output_type = tf.int32), tf.argmax(result_prob_e, -1, output_type = tf.int32))
+                    tf.equal(tf.argmax(self.answer_s, 1, output_type = tf.int32), tf.argmax(self.result_s, -1, output_type = tf.int32)),
+                    tf.equal(tf.argmax(self.answer_e, 1, output_type = tf.int32), tf.argmax(self.result_e, -1, output_type = tf.int32))
                 ), dtype = 'float'
             )))
 
         self.begin_acc = tf.reduce_sum(
-            tf.sign(tf.cast(tf.equal(tf.argmax(answer_s, 1, output_type = tf.int32), tf.argmax(result_prob_s, -1, output_type = tf.int32)),
+            tf.sign(tf.cast(tf.equal(tf.argmax(self.answer_s, 1, output_type = tf.int32), tf.argmax(self.result_s, -1, output_type = tf.int32)),
                             dtype = 'float')))
         self.end_acc = tf.reduce_sum(
-            tf.sign(tf.cast(tf.equal(tf.argmax(answer_e, 1, output_type = tf.int32), tf.argmax(result_prob_e, -1, output_type = tf.int32)),
+            tf.sign(tf.cast(tf.equal(tf.argmax(self.answer_e, 1, output_type = tf.int32), tf.argmax(self.result_e, -1, output_type = tf.int32)),
                             dtype = 'float')))
-
-    def add_loss(self, answer_start, answer_end):
-        """
-        Add loss computation to the graph.
-        Uses:
-          self.logits_start: shape (batch_size, context_len)
-            IMPORTANT: Assumes that self.logits_start is masked (i.e. has -large in masked locations).
-            That's because the tf.nn.sparse_softmax_cross_entropy_with_logits
-            function applies softmax and then computes cross-entropy loss.
-            So you need to apply masking to the logits (by subtracting large
-            number in the padding location) BEFORE you pass to the
-            sparse_softmax_cross_entropy_with_logits function.
-          self.ans_span: shape (batch_size, 2)
-            Contains the gold start and end locations
-        Defines:
-          self.loss_start, self.loss_end, self.loss: all scalar tensors
-        """
-        with tf.variable_scope("loss"):
-            # Calculate loss for prediction of start position
-            loss_start = tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.logits_start,
-                                                                        labels = tf.argmax(answer_start,
-                                                                                           -1))  # loss_start has shape (batch_size)
-            self.loss_start = tf.reduce_mean(loss_start)  # scalar. avg across batch
-
-            # Calculate loss for prediction of end position
-            loss_end = tf.nn.sparse_softmax_cross_entropy_with_logits(logits = self.logits_end, labels = tf.argmax(answer_end, -1))
-            self.loss_end = tf.reduce_mean(loss_end)
-
-            # Add the two losses
-            self.loss = self.loss_start + self.loss_end
 
     @staticmethod
     def softmax_with_mask(logits, axis, mask, epsilon = 10e-8, name = None):  # 1. normalize 2. softmax
