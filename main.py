@@ -3,7 +3,7 @@ import sys
 from models.nlp_base import NLPBase
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3,2,1"
+os.environ["CUDA_VISIBLE_DEVICES"] = "3,2,0,1"
 
 def get_model_class(model_name):
     if len(sys.argv) > 1:

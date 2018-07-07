@@ -44,6 +44,8 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
             optimizer = tf.train.GradientDescentOptimizer(learning_rate=self.args.lr)
         elif self.args.optimizer == "ADAM":
             optimizer = tf.train.AdamOptimizer(learning_rate=self.args.lr)
+        elif self.args.optimizer == 'ADAD':
+            optimizer = tf.train.AdadeltaOptimizer(learning_rate=self.args.lr, rho = 0.95, epsilon = 1e-06, )
         else:
             raise NotImplementedError("Other Optimizer Not Implemented.-_-||")
 
@@ -137,7 +139,7 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
         logger("Train on {} batches, {} samples per batch, {} total.".format(batch_num, batch_size, self.train_nums))
 
         step = self.sess.run(self.step)
-        self.draw_graph()
+        # self.draw_graph()
         while step < batch_num * epochs:
             step = self.sess.run(self.step)
             # on Epoch start
@@ -149,7 +151,6 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
             data, samples = self.get_batch_data("train", step % batch_num)
             loss, _, corrects, begin_acc, end_acc = self.sess.run([self.loss, self.train_op, self.correct_prediction, self.begin_acc, self.end_acc],
                                                        feed_dict=data)
-            print(corrects)
             corrects_in_epoch += corrects
             loss_in_epoch += loss * samples
             samples_in_epoch += samples
@@ -163,12 +164,12 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
                     samples_in_epoch, self.train_nums,
                     step % batch_num, batch_num,
                     loss_in_epoch / samples_in_epoch, corrects_in_epoch / samples_in_epoch, begin_acc_in_epoch / samples_in_epoch, end_acc_in_epoch / samples_in_epoch))
-                tf.summary.scalar('cross_entropy', loss)
-                tf.summary.scalar('accuracy', corrects)
-                merged_summary = tf.summary.merge_all()
-                s = self.sess.run(merged_summary, feed_dict = data)
-                self.writer.add_summary(s, step)
-                self.writer.flush()
+                # tf.summary.scalar('cross_entropy', loss)
+                # tf.summary.scalar('accuracy', corrects)
+                # merged_summary = tf.summary.merge_all()
+                # s = self.sess.run(merged_summary, feed_dict = data)
+                # self.writer.add_summary(s, step)
+                # self.writer.flush()
 
 
             # evaluate on the valid set and early stopping

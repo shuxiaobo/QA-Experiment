@@ -26,7 +26,7 @@ def process_tokens(temp_tokens):
         # l = ("-", "\u2212", "\u2014", "\u2013")
         # l = ("\u2013",)
         tokens.extend(re.split("([{}])".format("".join(l)), token))
-    return tokens
+    return temp_tokens
 
 
 # noinspection PyAttributeOutsideInit

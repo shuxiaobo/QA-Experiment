@@ -114,7 +114,7 @@ class SimpleModelSQuad4(RcBase):
         with tf.variable_scope('attention_dq'):
             atten_q2d, atten_d2q = context_query_attention(context = d_emb_bi, query = q_emb_bi, scope = 'context_query_att',
                                                            reuse = None)
-            attened_d = tf.concat([tf.multiply(d_emb_bi, atten_d2q), tf.multiply(d_emb_bi, atten_q2d), d_emb_bi], axis = -1)
+            attened_d = tf.concat([tf.add(d_emb_bi, atten_d2q), tf.add(d_emb_bi, atten_q2d), d_emb_bi], axis = -1)
             # computing c dot b
             # atten_d_q = tf.einsum('bij,bjk->bik', d_emb_bi, tf.transpose(q_emb_bi, perm = [0, 2, 1]))
             # atten_d = tf.reduce_sum(atten_d_q, axis = -1)
@@ -145,7 +145,6 @@ class SimpleModelSQuad4(RcBase):
             with tf.variable_scope('reinforce', reuse = tf.AUTO_REUSE) as scp:
                 context_and_q = tf.concat([x_context, hidden_d, q_emb_rl], axis = -1)
                 rl_w = tf.get_variable(name = 'w', shape = [context_and_q.get_shape()[-1], context_and_q.get_shape()[-1]])
-                rl_b = tf.get_variable(name = 'b', shape = [1])
                 if activ == 'tanh':
                     rl_mul_context_q = tf.tanh(tf.matmul(context_and_q, rl_w))
                 else:
@@ -155,7 +154,7 @@ class SimpleModelSQuad4(RcBase):
                 memory = tf.multiply(tf.nn.tanh(tf.matmul(out, memory_update_w)), memory)
             # inference : use the new memory to inference the answer
             with tf.variable_scope('inference', reuse = tf.AUTO_REUSE) as scp:
-                context = tf.concat([memory, hidden_d, q_emb_rl], -1)
+                context = tf.nn.dropout(tf.concat([memory, hidden_d, q_emb_rl], -1), keep_prob = self.args.keep_prob)
                 infer_bilinear_start = tf.get_variable('infer_bilinear_start',
                                                        shape = [context.get_shape()[-1], candi_embed.get_shape()[-1]])
                 pre_anw = tf.squeeze(
@@ -181,13 +180,6 @@ class SimpleModelSQuad4(RcBase):
                                                       elems = [tf.transpose(attened_d, perm = [1, 0, 2])],
                                                       initializer = [memory, m_state, result_ss, result_ee], name = 'scan',
                                                       swap_memory = True)
-        # result_s = tf.reduce_sum(result_s, 0)
-        # result_e = tf.reduce_sum(result_e, 0)
-        # epsilon = tf.convert_to_tensor(_EPSILON, tf.float32, name = "epsilon")
-        # result_prob_s = tf.clip_by_value(tf.nn.relu(result_s) / tf.reduce_sum(tf.nn.relu(result_s)), epsilon, 1. - epsilon)
-        # result_prob_e = tf.clip_by_value(tf.nn.relu(result_e) / tf.reduce_sum(tf.nn.relu(result_e)), epsilon, 1. - epsilon)
-        # self.logits_start = result_prob_s
-        # self.logits_end = result_prob_e
         self.result_s = result_s[-1]
         self.result_e = result_e[-1]
         self.answer_s = answer_s

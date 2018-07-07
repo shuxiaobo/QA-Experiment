@@ -15,6 +15,7 @@ from utils.layers import *
 from models.rc_base import RcBase
 from utils.log import logger
 
+from models.attention_wrapper import *
 
 class SimpleModelSQuad3(RcBase):
     """
@@ -85,7 +86,7 @@ class SimpleModelSQuad3(RcBase):
             outputs, q_last_states = tf.nn.bidirectional_dynamic_rnn(cell_fw = q_rnn_f, cell_bw = q_rnn_b, inputs = q_embed,
                                                                      sequence_length = q_real_len, initial_state_bw = None,
                                                                      dtype = "float32", parallel_iterations = None,
-                                                                     swap_memory = True, time_major = False, scope = None)
+                                                                     swap_memory = True, time_major = False, scope = 'd_rnn')
 
             q_emb_bi = tf.concat(outputs, axis = -1)
             if self.args.use_lstm:
@@ -142,6 +143,19 @@ class SimpleModelSQuad3(RcBase):
         貌似loss由整个模型的结构和lr决定，acc由一些细节决定
         """
         with tf.variable_scope("match_rnn") as scp:
+            # Match RNN via attention wrapper
+            # with tf.variable_scope("match_lstm_attender"):
+            #     match_lstm_cell_attention_fn = lambda curr_input, state: tf.concat([curr_input, state], axis = -1)
+            #     attention_mechanism_match_lstm = BahdanauAttention(q_emb_bi_con.get_shape()[-1], q_emb_bi_con, memory_sequence_length = q_real_len)
+            #     cell = tf.contrib.rnn.BasicLSTMCell(hidden_size, state_is_tuple = True)
+            #     lstm_attender = AttentionWrapper(cell, attention_mechanism_match_lstm, output_attention = False,
+            #                                      attention_input_fn = match_lstm_cell_attention_fn)
+            #
+            #     # we don't mask the passage because masking the memories will be handled by the pointerNet
+            #
+            #     output_attender, _ = tf.nn.bidirectional_dynamic_rnn(cell_fw = lstm_attender, cell_bw = lstm_attender, inputs = d_emb_bi_attened, dtype = tf.float32, swap_memory=True, scope = "rnn")
+            #     d_emb_bi_attened = tf.concat(output_attender, axis = -1)
+
             # Match RNN via tf.scan
             f_cell = MatchCell(cell(hidden_size), d_emb_bi_attened.get_shape()[-1].value, self.q_len)
             f_init_state = f_cell.zero_state(tf.shape(d_emb_bi)[0], dtype = tf.float32)
@@ -194,7 +208,6 @@ class SimpleModelSQuad3(RcBase):
             #                                                    sequence_length = d_real_len, swap_memory = True, dtype = "float32", )
             # d_emb_bi_attened = tf.concat(d_att_rnn_out, -1)
 
-            self.d_att_rnn_out = d_att_rnn_out
             self.d_emb_bi_attened = d_emb_bi_attened
 
         with tf.variable_scope('pointer') as scp:
