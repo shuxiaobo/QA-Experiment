@@ -123,12 +123,13 @@ class SimpleModelSQuad2(RcBase):
             p1 = self.softmax_with_mask(
                 logits = tf.reshape(tf.matmul(tf.reshape(tf.concat([G_belta, M], -1), [-1, hidden_size * 10]), w_p_1), [-1, self.d_len]),
                 axis = -1, mask = d_mask)
-            self.p1 = p1
+            self.result_s = p1
             p2 = self.softmax_with_mask(
                 logits = tf.reshape(tf.matmul(tf.reshape(tf.concat([G_belta, M_2], -1), [-1, hidden_size * 10]), w_p_2), [-1, self.d_len]),
                 axis = -1, mask = d_mask)
-            self.p2 = p2
-        self.answer1 = answer_s
+            self.result_e = p2
+        self.answer_s = answer_s
+        self.answer_e = answer_e
         epsilon = tf.convert_to_tensor(_EPSILON, p1.dtype.base_dtype, name = "epsilon")
         p1 = tf.clip_by_value(p1, epsilon, 1. - epsilon) + (1 - d_mask)
         p2 = tf.clip_by_value(p2, epsilon, 1. - epsilon) + (1 - d_mask)
@@ -137,10 +138,19 @@ class SimpleModelSQuad2(RcBase):
         self.correct_prediction = tf.reduce_sum(
             tf.sign(tf.cast(
                 tf.logical_and(
-                    tf.equal(tf.argmax(answer_s, 1), tf.argmax(p1, 1)),
-                    tf.equal(tf.argmax(answer_e, 1), tf.argmax(p2, 1))
+                    tf.equal(tf.argmax(self.answer_s, 1, output_type = tf.int32), tf.argmax(self.result_s, -1, output_type = tf.int32)),
+                    tf.equal(tf.argmax(self.answer_e, 1, output_type = tf.int32), tf.argmax(self.result_e, -1, output_type = tf.int32))
                 ), dtype = 'float'
             )))
+
+        self.begin_acc = tf.reduce_sum(
+            tf.sign(
+                tf.cast(tf.equal(tf.argmax(self.answer_s, 1, output_type = tf.int32), tf.argmax(self.result_s, -1, output_type = tf.int32)),
+                        dtype = 'float')))
+        self.end_acc = tf.reduce_sum(
+            tf.sign(
+                tf.cast(tf.equal(tf.argmax(self.answer_e, 1, output_type = tf.int32), tf.argmax(self.result_e, -1, output_type = tf.int32)),
+                        dtype = 'float')))
 
     @staticmethod
     def softmax_with_mask(logits, axis, mask, epsilon = 10e-8, name = None):  # 1. normalize 2. softmax

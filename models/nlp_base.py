@@ -110,11 +110,11 @@ class NLPBase(object):
 
         subgroup.add_argument("--tmp_dir", default="tmp", help="dataset specific tmp folder")
 
-        subgroup.add_argument("--train_file", default="cbtest_NE_train.txt", help="train file")
+        subgroup.add_argument("--train_file", default="cbtest_NE_train.txt", help="train file, if use SQuAD, this arg will be ignore")
 
-        subgroup.add_argument("--valid_file", default="cbtest_NE_valid_2000ex.txt", help="validation file")
+        subgroup.add_argument("--valid_file", default="cbtest_NE_valid_2000ex.txt", help="validation file, if use SQuAD, this arg will be ignore")
 
-        subgroup.add_argument("--test_file", default="cbtest_NE_test_2500ex.txt", help="test file")
+        subgroup.add_argument("--test_file", default="cbtest_NE_test_2500ex.txt", help="test file, if use SQuAD, this arg will be ignore")
 
         subgroup.add_argument("--max_count", default=None, type=int_or_none,
                               help="read n lines of data file, if None, read all data")
