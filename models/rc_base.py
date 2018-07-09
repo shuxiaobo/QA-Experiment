@@ -84,7 +84,7 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
         # [document length] and [question length] to build the model
         # train/valid/test sample number to train and validate and test the model
         statistics = self.dataset.get_data_stream()
-        self.d_len, self.q_len, self.train_nums, self.valid_nums, self.test_num = statistics
+        self.d_len, self.q_len, self.train_nums, self.valid_nums, self.test_num, self.d_char_len, self.q_char_len = statistics
         self.dataset.preprocess()
 
         # Get the word embedding and character embedding(if necessary)
@@ -150,7 +150,7 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
 
             data, samples = self.get_batch_data("train", step % batch_num)
             loss, _, corrects, begin_acc, end_acc = self.sess.run([self.loss, self.train_op, self.correct_prediction, self.begin_acc, self.end_acc],
-                                                       feed_dict=data)
+                                                       feed_dict = data)
             corrects_in_epoch += corrects
             loss_in_epoch += loss * samples
             samples_in_epoch += samples

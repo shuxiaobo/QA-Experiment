@@ -16,26 +16,47 @@ class SQuAD(RCDataset):
         self.w_len = 10
 
     def next_batch_feed_dict_by_dataset(self, dataset, _slice, samples):
-        data = {
-            "documents_bt:0": dataset[0][_slice],
-            "questions_bt:0": dataset[1][_slice],
-            # TODO: substitute with real data
-            # "documents_btk:0": np.zeros([samples, self.d_len, self.w_len]),
-            # "questions_btk:0": np.zeros([samples, self.q_len, self.w_len]),
-            "answer_start:0": dataset[2][_slice],
-            "answer_end:0": dataset[3][_slice]
-        }
+        if self.args.use_char_embedding:
+            data = {
+                "documents_bt:0": dataset[0][_slice],
+                "questions_bt:0": dataset[1][_slice],
+                "documents_bt_char:0": dataset[2][_slice],
+                "questions_bt_char:0": dataset[3][_slice],
+                "answer_start:0": dataset[4][_slice],
+                "answer_end:0": dataset[5][_slice]
+            }
+        else:
+            data = {
+                "documents_bt:0": dataset[0][_slice],
+                "questions_bt:0": dataset[1][_slice],
+                # TODO: substitute with real data
+                # "documents_btk:0": np.zeros([samples, self.d_len, self.w_len]),
+                # "questions_btk:0": np.zeros([samples, self.q_len, self.w_len]),
+                "answer_start:0": dataset[2][_slice],
+                "answer_end:0": dataset[3][_slice]
+            }
         return data, samples
 
     def preprocess_input_sequences(self, data):
-        documents, questions, answer_spans = data
+        if not self.args.use_char_embedding:
+            documents, questions, answer_spans = data
+        else:
+            documents, questions, documents_char, questions_char, answer_spans = data
+            documents_char_ok = pad_sequences(documents_char, maxlen = self.d_len, dtype = "int32", padding = "post",
+                                              truncating = "post")
+            questions_char_ok = pad_sequences(questions_char, maxlen = self.q_len, dtype = "int32", padding = "post",
+                                              truncating = "post")
+
         documents_ok = pad_sequences(documents, maxlen = self.d_len, dtype = "int32", padding = "post", truncating = "post")
         questions_ok = pad_sequences(questions, maxlen = self.q_len, dtype = "int32", padding = "post", truncating = "post")
 
         # FIXME: here can not use the array ,because the postiton is counted under character. not words
         answer_start = [np.array([int(i == answer_span[0]) for i in range(self.d_len)]) for answer_span in answer_spans]
         answer_end = [np.array([int(i == answer_span[1]) for i in range(self.d_len)]) for answer_span in answer_spans]
-        return documents_ok, questions_ok, np.asarray(answer_start), np.asarray(answer_end)
+        if self.args.use_char_embedding:
+            return documents_ok, questions_ok, documents_char_ok, questions_char_ok, np.asarray(answer_start), np.asarray(answer_end)
+        else:
+            return documents_ok, questions_ok, np.asarray(answer_start), np.asarray(answer_end)
 
     def prepare_data(self, data_dir, train_file, valid_file, max_vocab_num, output_dir = ""):
         """
@@ -105,16 +126,21 @@ class SQuAD(RCDataset):
 
         return documents, questions, answer_spans
 
-    def squad_data_to_idx(self, vocab_file, *args):
+    def squad_data_to_idx(self, vocab_file, char_vocab_file = None, *args):
         """
         convert string list to index list form.         
         """
         logger("Convert string data to index.")
         word_dict = self.load_vocab(vocab_file)
-        res_data = [0, ] * len(args)
+        if self.args.use_char_embedding:
+            char_dict = self.load_vocab(self.char_vocab_file)
+        res_data = []
         for idx, i in enumerate(args):
             tmp = [self.sentence_to_token_ids(document, word_dict) for document in i]
-            res_data[idx] = tmp.copy()
+            res_data.append(tmp.copy())
+            if self.args.use_char_embedding:
+                tmp_c = [self.words_to_char_ids(document, char_dict) for document in i]
+                res_data.append(tmp_c.copy())
         logger("Convert string2index done.")
         return res_data
 
@@ -123,15 +149,9 @@ class SQuAD(RCDataset):
         answer_se = []
         for i in range(len(context)):
             answer_tokens = process_tokens(default_tokenizer(context[i][answer_span[i][0]: answer_span[i][1]]))
-            con = process_tokens(default_tokenizer(context[i]))
-            a_start = [i for i in range(len(con)) if con[i] == answer_tokens[0]]
-            for a in a_start:
-                for i in range(len(answer_tokens)):
-                    if answer_tokens[i] != con[a + i]:
-                        break
-                a_start_idx = a
-                a_end_idx = a + len(answer_tokens) - 1
-                break
+            con = process_tokens(default_tokenizer(context[i][:answer_span[i][0]]))
+            a_start_idx = len(con)
+            a_end_idx = len(con) + len(answer_tokens)
             answer_se.append([a_start_idx, a_end_idx])
         return answer_se
 
@@ -144,24 +164,41 @@ class SQuAD(RCDataset):
                                                                                                 self.args.valid_file,
                                                                                                 self.args.max_vocab_num,
                                                                                                 self.args.tmp_dir)
-
         # read data
         documents, questions, answer_spans = self.read_squad_data(os_train_file)
         v_documents, v_questions, v_answer_spans = self.read_squad_data(os_valid_file)
-        documents_ids, questions_ids, v_documents_ids, v_questions_ids = self.squad_data_to_idx(self.vocab_file, documents, questions,
-                                                                                v_documents, v_questions)
+
+        use_char = self.args.use_char_embedding and self.char_vocab_file
+        if use_char:
+            documents_ids, documents_char_ids, questions_ids, questions_char_ids, v_documents_ids, v_documents_char_ids, v_questions_ids, v_questions_char_ids = self.squad_data_to_idx(
+                self.vocab_file, self.char_vocab_file, documents,
+                questions,
+                v_documents, v_questions)
+        else:
+            if not self.char_vocab_file and self.args.use_char_embedding:
+                # Warning(
+                #     'No char vocabulary file has been found, char embedding will be ignored. set the value of self.char_vocab_file to enable the char embedding in squad.py.')
+                raise Exception(
+                    "No char vocabulary file has been found,. set the value of self.char_vocab_file to enable the char embedding in squad.py.")
+            documents_ids, questions_ids, v_documents_ids, v_questions_ids = self.squad_data_to_idx(self.vocab_file, self.char_vocab_file,
+                                                                                                    documents, questions,
+                                                                                                    v_documents, v_questions)
         v_answer_spans = self.token_idx_map(v_documents, v_answer_spans)
         answer_spans = self.token_idx_map(documents, answer_spans)
-
 
         # SQuAD cannot access the test data
         # first 9/10 train data     ->     train data
         # last  1/10 train data     ->     valid data
         # valid data                ->     test data
         train_num = len(documents) * 9 // 10
-        self.train_data = (documents_ids[:train_num], questions_ids[:train_num], answer_spans[:train_num])
-        self.valid_data = (documents_ids[train_num:], questions_ids[train_num:], answer_spans[train_num:])
-        self.test_data = (v_documents_ids, v_questions_ids, v_answer_spans)
+        self.train_data = (documents_ids[:train_num], questions_ids[:train_num], answer_spans[:train_num]) if not use_char \
+            else (documents_ids[:train_num], questions_ids[:train_num], documents_char_ids[:train_num], questions_char_ids[:train_num],
+                  answer_spans[:train_num])
+        self.valid_data = (documents_ids[train_num:], questions_ids[train_num:], answer_spans[train_num:]) if not use_char else (
+            documents_ids[train_num:], questions_ids[train_num:], documents_char_ids[train_num:], questions_char_ids[train_num:],
+            answer_spans[train_num:])
+        self.test_data = (v_documents_ids, v_questions_ids, v_answer_spans) if not use_char else (
+            v_documents_ids, v_questions_ids, v_documents_char_ids, v_questions_char_ids, v_answer_spans)
 
         def get_max_length(d_bt):
             lens = [len(i) for i in d_bt]
@@ -170,9 +207,14 @@ class SQuAD(RCDataset):
         # data statistics
         self.d_len = get_max_length(self.train_data[0])
         self.q_len = get_max_length(self.train_data[1])
+
+        self.d_char_len = max([get_max_length(i) for i in self.train_data[2]]) if use_char else None
+        self.q_char_len = max([get_max_length(i) for i in self.train_data[3]]) if use_char else None
+
         self.train_sample_num = len(self.train_data[0])
         self.valid_sample_num = len(self.valid_data[0])
         self.test_sample_num = len(self.test_data[0])
         self.train_idx = np.random.permutation(self.train_sample_num // self.args.batch_size)
-
-        return self.d_len, self.q_len, self.train_sample_num, self.valid_sample_num, self.test_sample_num
+        print(self.d_char_len)
+        print(self.q_char_len)
+        return self.d_len, self.q_len, self.train_sample_num, self.valid_sample_num, self.test_sample_num, self.d_char_len, self.q_char_len

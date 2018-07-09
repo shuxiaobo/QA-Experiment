@@ -5,7 +5,7 @@ from .simple import Simple_model
 from .simplerl import Simple_modelrl
 from .simple1 import Simple_model1
 from .simple_squad import SimpleModelSQuad
-from .simple_squad2 import SimpleModelSQuad2
+from .BiDAF import BiDAF
 from .simple_squad3 import SimpleModelSQuad3
 from .simple_squad4 import SimpleModelSQuad4
 from .simple_squad_bidaf import SimpleModelSQuadBiDAF

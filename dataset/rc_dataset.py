@@ -158,7 +158,8 @@ class RCDataset(object, metaclass = abc.ABCMeta):
             word_list:      {"I": 1, "h": 2, "a": 4, "v":3, "e":5, "dog": 7"}
             return:         [[1], [2, 4, 3, 5],]
         """
-        return [[char_dict.get(ch, self._CHAR_UNK) for ch in word] for word in process_tokens(tokenizer(sentence))]
+        return [[char_dict.get(ch, self.CHAR_UNK_ID) for ch in word[:28] + self._CHAR_PAD * (28 - len(word))] for word in
+                process_tokens(tokenizer(sentence))]
 
     def get_embedding_matrix(self, vocab_file, is_char_embedding = False):
         """

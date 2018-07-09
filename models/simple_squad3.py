@@ -17,6 +17,7 @@ from utils.log import logger
 
 from models.attention_wrapper import *
 
+
 class SimpleModelSQuad3(RcBase):
     """
     attention计算方式：
@@ -56,18 +57,16 @@ class SimpleModelSQuad3(RcBase):
         """
         num_layers = self.args.num_layers
         hidden_size = self.args.hidden_size
+        char_hidden_size = self.args.char_hidden_size
+        char_embedding_dim = self.args.char_embedding_dim
         cell = LSTMCell if self.args.use_lstm else GRUCell
 
         q_input = tf.placeholder(dtype = tf.int32, shape = [None, self.q_len], name = 'questions_bt')
         d_input = tf.placeholder(dtype = tf.int32, shape = [None, self.d_len], name = 'documents_bt')
+        q_input_char = tf.placeholder(dtype = tf.int32, shape = [None, self.q_len, self.q_char_len], name = 'questions_bt_char')
+        d_input_char = tf.placeholder(dtype = tf.int32, shape = [None, self.d_len, self.d_char_len], name = 'documents_bt_char')
         answer_s = tf.placeholder(dtype = tf.float32, shape = [None, None], name = 'answer_start')
         answer_e = tf.placeholder(dtype = tf.float32, shape = [None, None], name = 'answer_end')
-
-        init_embed = tf.constant(self.embedding_matrix, dtype = tf.float32)
-        embedding_matrix = tf.get_variable(name = 'embdding_matrix', initializer = init_embed, dtype = tf.float32)
-        # char_embedding = tf.get_variable(name = 'can_embdding_matrix', initializer = init_embed, dtype = tf.float32,
-        #                                  trainable = False)
-
         q_real_len = tf.reduce_sum(tf.sign(tf.abs(q_input)), axis = 1)
         d_real_len = tf.reduce_sum(tf.sign(tf.abs(d_input)), axis = 1)
         d_mask = tf.sequence_mask(dtype = tf.float32, maxlen = self.d_len, lengths = d_real_len)
@@ -75,8 +74,43 @@ class SimpleModelSQuad3(RcBase):
         _EPSILON = 10e-8
         self.d_mask = d_mask
 
+
+
+        init_embed = tf.constant(self.embedding_matrix, dtype = tf.float32)
+        embedding_matrix = tf.get_variable(name = 'embdding_matrix', initializer = init_embed, dtype = tf.float32)
+        if self.args.use_char_embedding:
+            char_embedding = tf.get_variable(name = 'can_embdding_matrix',
+                                             initializer = tf.constant(self.char_embedding_matrix, dtype = tf.float32), dtype = tf.float32,
+                                             trainable = True)
+
+            with tf.variable_scope('char_embedding', reuse = tf.AUTO_REUSE) as scp:
+                q_char_embed = tf.nn.embedding_lookup(char_embedding, q_input_char)
+                d_char_embed = tf.nn.embedding_lookup(char_embedding, d_input_char)
+
+                q_char_embed = tf.reshape(q_char_embed, [-1, self.q_len, self.d_char_len * char_embedding_dim])
+                d_char_embed = tf.reshape(d_char_embed, [-1, self.d_len, self.q_char_len * char_embedding_dim])
+
+                char_rnn_f = MultiRNNCell(
+                    cells = [DropoutWrapper(cell(char_hidden_size), output_keep_prob = self.args.keep_prob)])
+                char_rnn_b = MultiRNNCell(
+                    cells = [DropoutWrapper(cell(char_hidden_size), output_keep_prob = self.args.keep_prob)])
+
+                d_char_embed_out, _ = tf.nn.bidirectional_dynamic_rnn(cell_fw = char_rnn_f, cell_bw = char_rnn_b, inputs = d_char_embed,
+                                                                         sequence_length = d_real_len, initial_state_bw = None,
+                                                                         dtype = "float32", parallel_iterations = None,
+                                                                         swap_memory = True, time_major = False, scope = 'char_rnn')
+                q_char_embed_out, _ = tf.nn.bidirectional_dynamic_rnn(cell_fw = char_rnn_f, cell_bw = char_rnn_b, inputs = q_char_embed,
+                                                                         sequence_length = q_real_len, initial_state_bw = None,
+                                                                         dtype = "float32", parallel_iterations = None,
+                                                                         swap_memory = True, time_major = False, scope = 'char_rnn')
+
+                d_char_out = tf.concat(d_char_embed_out, -1)
+                q_char_out = tf.concat(q_char_embed_out, -1)
+
         with tf.variable_scope('q_encoder') as scp:
             q_embed = tf.nn.embedding_lookup(embedding_matrix, q_input)
+            if self.args.use_char_embedding:
+                q_embed = tf.concat([q_embed, q_char_out], -1)
 
             q_rnn_f = MultiRNNCell(
                 cells = [DropoutWrapper(cell(hidden_size), output_keep_prob = self.args.keep_prob) for _ in range(num_layers)])
@@ -98,6 +132,8 @@ class SimpleModelSQuad3(RcBase):
 
         with tf.variable_scope('d_encoder'):
             d_embed = tf.nn.embedding_lookup(embedding_matrix, d_input)
+            if self.args.use_char_embedding:
+                d_embed =tf.concat([d_embed, d_char_out], -1)
 
             d_rnn_f = MultiRNNCell(
                 cells = [DropoutWrapper(cell(hidden_size), output_keep_prob = self.args.keep_prob) for _ in range(num_layers)])
@@ -127,12 +163,12 @@ class SimpleModelSQuad3(RcBase):
         # #     self.d_emb_bi_attened_pre = d_emb_bi_attened  # 这一层有问题，结果太小
         with tf.variable_scope('attention_dq'):
             atten_q2d, atten_d2q = context_query_attention(context = d_emb_bi, query = q_emb_bi, scope = 'context_query_att',
-                                                       reuse = None)
+                                                           reuse = None)
             d_emb_bi_con = tf.concat([tf.add(d_emb_bi, atten_d2q), tf.add(d_emb_bi, atten_q2d), d_emb_bi], axis = -1)
             d_emb_bi_attened = d_emb_bi_con
             # attented_d_w = tf.get_variable('attented_d_w', shape = [d_emb_bi_con.get_shape()[-1], d_emb_bi.get_shape()[-1]])
             # d_emb_bi_attened = tf.einsum('bij,jk->bik', d_emb_bi_con, attented_d_w)
-            atten_q2d, atten_d2q = context_query_attention(context =q_emb_bi , query = d_emb_bi, scope = 'context_query_att',
+            atten_q2d, atten_d2q = context_query_attention(context = q_emb_bi, query = d_emb_bi, scope = 'context_query_att',
                                                            reuse = True)
             q_emb_bi_con = tf.concat([tf.add(q_emb_bi, atten_d2q), tf.add(q_emb_bi, atten_q2d), q_emb_bi], axis = -1)
             q_emb_bi_attened = q_emb_bi_con
@@ -166,14 +202,14 @@ class SimpleModelSQuad3(RcBase):
                 fn = lambda pre, x: f_cell(tf.concat([tf.reshape(x, [-1, d_emb_bi_attened.get_shape()[-1].value]), q_mask, reshaped_q], -1),
                                            pre[1], scope = 'fo'),
                 elems = [tf.transpose(d_emb_bi_attened, perm = [1, 0, 2])],
-                initializer = (tf.zeros(tf.shape(f_init_state[1])), f_init_state),swap_memory=True)
+                initializer = (tf.zeros(tf.shape(f_init_state[1])), f_init_state), swap_memory = True)
             d_att_rnn_out2, _ = tf.scan(
                 fn = lambda pre, x: b_cell(tf.concat([tf.reshape(x, [-1, d_emb_bi_attened.get_shape()[-1].value]), q_mask, reshaped_q], -1),
                                            pre[1], scope = 'b'),
                 elems = [tf.reverse_sequence(tf.transpose(d_emb_bi_attened, perm = [1, 0, 2]), d_real_len,
                                              seq_axis = 0,
                                              batch_axis = 1)],
-                initializer = (tf.zeros(tf.shape(b_init_state[1])), b_init_state), swap_memory=True)
+                initializer = (tf.zeros(tf.shape(b_init_state[1])), b_init_state), swap_memory = True)
             d_emb_bi_attened = tf.concat([d_att_rnn_out, d_att_rnn_out2], -1)
             d_emb_bi_attened = tf.transpose(d_emb_bi_attened, perm = [1, 0, 2])
 
@@ -239,7 +275,6 @@ class SimpleModelSQuad3(RcBase):
             tf.sign(
                 tf.cast(tf.equal(tf.argmax(self.answer_e, 1, output_type = tf.int32), tf.argmax(self.p2, -1, output_type = tf.int32)),
                         dtype = 'float')))
-
 
     @staticmethod
     def softmax_with_mask(logits, axis, mask, epsilon = 10e-8, name = None):  # 1. normalize 2. softmax

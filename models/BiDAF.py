@@ -20,7 +20,7 @@ this implement is for BiDAF.
 """
 
 
-class SimpleModelSQuad2(RcBase):
+class BiDAF(RcBase):
     """
     """
 
@@ -138,7 +138,7 @@ class SimpleModelSQuad2(RcBase):
                             [1, self.d_len, 1])  # B * D * hidden*2,
 
             G_belta = tf.nn.dropout(tf.concat([d_emb_bi, U_hat, d_emb_bi * U_hat, d_emb_bi * H_hat], axis = -1),
-                                    keep_prob = se.args.keep_prob)
+                                    keep_prob = self.args.keep_prob)
 
         with tf.variable_scope('model_layer') as scp:
             model_cell_f = MultiRNNCell(
