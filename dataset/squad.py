@@ -122,7 +122,7 @@ class SQuAD(RCDataset):
         [extract(sample) for data in data_list for sample in data["paragraphs"]]
 
         if self.args.debug:
-            documents, questions, answer_spans = documents[:1000], questions[:1000], answer_spans[:1000]
+            documents, questions, answer_spans = documents[:5000], questions[:5000], answer_spans[:5000]
 
         return documents, questions, answer_spans
 
@@ -151,7 +151,7 @@ class SQuAD(RCDataset):
             answer_tokens = process_tokens(default_tokenizer(context[i][answer_span[i][0]: answer_span[i][1]]))
             con = process_tokens(default_tokenizer(context[i][:answer_span[i][0]]))
             a_start_idx = len(con)
-            a_end_idx = len(con) + len(answer_tokens)
+            a_end_idx = len(con) + len(answer_tokens) - 1
             answer_se.append([a_start_idx, a_end_idx])
         return answer_se
 
@@ -199,6 +199,9 @@ class SQuAD(RCDataset):
             answer_spans[train_num:])
         self.test_data = (v_documents_ids, v_questions_ids, v_answer_spans) if not use_char else (
             v_documents_ids, v_questions_ids, v_documents_char_ids, v_questions_char_ids, v_answer_spans)
+
+
+
 
         def get_max_length(d_bt):
             lens = [len(i) for i in d_bt]
