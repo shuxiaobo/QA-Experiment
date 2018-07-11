@@ -56,10 +56,10 @@ class RcBase(NLPBase, metaclass=abc.ABCMeta):
                 (tf.clip_by_norm(grad, self.args.grad_clipping), var)
                 if grad is not None else (grad, var)
                 for grad, var in grad_vars]
-        for g, v in grad_vars:
-            if g is not None:
-                tf.summary.histogram("{}/grad_histogram".format(v.name), g)
-                tf.summary.scalar("{}/grad/sparsity".format(v.name), tf.nn.zero_fraction(g))
+        # for g, v in grad_vars:
+        #     if g is not None:
+        #         tf.summary.histogram("{}/grad_histogram".format(v.name), g)
+        #         tf.summary.scalar("{}/grad/sparsity".format(v.name), tf.nn.zero_fraction(g))
 
         self.train_op = optimizer.apply_gradients(grad_vars, self.step)
         return

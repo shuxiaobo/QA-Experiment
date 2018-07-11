@@ -74,8 +74,6 @@ class SimpleModelSQuad3(RcBase):
         _EPSILON = 10e-8
         self.d_mask = d_mask
 
-
-
         init_embed = tf.constant(self.embedding_matrix, dtype = tf.float32)
         embedding_matrix = tf.get_variable(name = 'embdding_matrix', initializer = init_embed, dtype = tf.float32)
         if self.args.use_char_embedding:
@@ -96,13 +94,13 @@ class SimpleModelSQuad3(RcBase):
                     cells = [DropoutWrapper(cell(char_hidden_size), output_keep_prob = self.args.keep_prob)])
 
                 d_char_embed_out, _ = tf.nn.bidirectional_dynamic_rnn(cell_fw = char_rnn_f, cell_bw = char_rnn_b, inputs = d_char_embed,
-                                                                         sequence_length = d_real_len, initial_state_bw = None,
-                                                                         dtype = "float32", parallel_iterations = None,
-                                                                         swap_memory = True, time_major = False, scope = 'char_rnn')
+                                                                      sequence_length = d_real_len, initial_state_bw = None,
+                                                                      dtype = "float32", parallel_iterations = None,
+                                                                      swap_memory = True, time_major = False, scope = 'char_rnn')
                 q_char_embed_out, _ = tf.nn.bidirectional_dynamic_rnn(cell_fw = char_rnn_f, cell_bw = char_rnn_b, inputs = q_char_embed,
-                                                                         sequence_length = q_real_len, initial_state_bw = None,
-                                                                         dtype = "float32", parallel_iterations = None,
-                                                                         swap_memory = True, time_major = False, scope = 'char_rnn')
+                                                                      sequence_length = q_real_len, initial_state_bw = None,
+                                                                      dtype = "float32", parallel_iterations = None,
+                                                                      swap_memory = True, time_major = False, scope = 'char_rnn')
 
                 d_char_out = tf.concat(d_char_embed_out, -1)
                 q_char_out = tf.concat(q_char_embed_out, -1)
@@ -133,7 +131,7 @@ class SimpleModelSQuad3(RcBase):
         with tf.variable_scope('d_encoder'):
             d_embed = tf.nn.embedding_lookup(embedding_matrix, d_input)
             if self.args.use_char_embedding:
-                d_embed =tf.concat([d_embed, d_char_out], -1)
+                d_embed = tf.concat([d_embed, d_char_out], -1)
 
             d_rnn_f = MultiRNNCell(
                 cells = [DropoutWrapper(cell(hidden_size), output_keep_prob = self.args.keep_prob) for _ in range(num_layers)])

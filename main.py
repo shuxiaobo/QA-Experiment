@@ -3,7 +3,7 @@ import sys
 from models.nlp_base import NLPBase
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "3,2" # Note: if set "0,1,2,3" and the #1 GPU is using, will cause OOM Error
+os.environ["CUDA_VISIBLE_DEVICES"] = "1" # Note: if set "0,1,2,3" and the #1 GPU is using, will cause OOM Error
 
 def get_model_class(model_name):
     if len(sys.argv) > 1:
@@ -14,7 +14,7 @@ def get_model_class(model_name):
         class_obj, class_name = None, None
     try:
         import models
-        class_obj = getattr(sys.modules["models"], class_name if model_name == None else model_name)
+        class_obj = getattr(sys.modules["models"], class_name if class_name == None else model_name)
         # sys.argv.pop(1)
     except AttributeError or IndexError:
         print("Model [{}] not found.\nSupported models:\n\n\t\t{}\n".format(class_name, sys.modules["models"].__all__))
@@ -24,5 +24,5 @@ def get_model_class(model_name):
 
 if __name__ == '__main__':
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = "3"
-    model = get_model_class('SimpleModelSQuad3')
+    model = get_model_class('BiDAF')
     model.execute()

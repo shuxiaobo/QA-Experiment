@@ -49,31 +49,67 @@ class BiDAF(RcBase):
         q_mask = tf.sequence_mask(dtype = tf.float32, maxlen = self.q_len, lengths = d_real_len)
         _EPSILON = 10e-8
 
+        batch_size = tf.shape(q_input)[0]
+
         if self.args.use_char_embedding:
             char_embedding = tf.get_variable(name = 'can_embdding_matrix',
                                              initializer = tf.constant(self.char_embedding_matrix, dtype = tf.float32), dtype = tf.float32,
                                              trainable = True)
 
             with tf.variable_scope('char_embedding', reuse = tf.AUTO_REUSE) as scp:
-                q_char_embed = tf.nn.embedding_lookup(char_embedding, q_input_char)
-                d_char_embed = tf.nn.embedding_lookup(char_embedding, d_input_char)
+                q_char_embed = tf.nn.embedding_lookup(char_embedding, q_input_char)  # B * Q * C * emb
+                d_char_embed = tf.nn.embedding_lookup(char_embedding, d_input_char)  # B * D * C * emb
 
-                q_char_embed = tf.reshape(q_char_embed, [-1, self.q_len, self.d_char_len * char_embedding_dim])
-                d_char_embed = tf.reshape(d_char_embed, [-1, self.d_len, self.q_char_len * char_embedding_dim])
+                # q_char_embed = tf.reshape(q_char_embed, [-1, self.q_len, self.d_char_len * char_embedding_dim])  # B * Q * C * emb
+                # d_char_embed = tf.reshape(d_char_embed, [-1, self.d_len, self.q_char_len * char_embedding_dim])  # B * D * C * emb
+                # char_rnn_f = MultiRNNCell(
+                #     cells = [DropoutWrapper(cell(char_hidden_size), output_keep_prob = self.args.keep_prob)])
+                # char_rnn_b = MultiRNNCell(
+                #     cells = [DropoutWrapper(cell(char_hidden_size), output_keep_prob = self.args.keep_prob)])
+                #
+                # d_char_embed_out, _ = tf.nn.bidirectional_dynamic_rnn(cell_fw = char_rnn_f, cell_bw = char_rnn_b, inputs = d_char_embed,
+                #                                                       sequence_length = d_real_len, initial_state_bw = None,
+                #                                                       dtype = "float32", parallel_iterations = None,
+                #                                                       swap_memory = True, time_major = False, scope = 'char_rnn')
+                # q_char_embed_out, _ = tf.nn.bidirectional_dynamic_rnn(cell_fw = char_rnn_f, cell_bw = char_rnn_b, inputs = q_char_embed,
+                #                                                       sequence_length = q_real_len, initial_state_bw = None,
+                #                                                       dtype = "float32", parallel_iterations = None,
+                #                                                       swap_memory = True, time_major = False, scope = 'char_rnn')
 
-                char_rnn_f = MultiRNNCell(
-                    cells = [DropoutWrapper(cell(char_hidden_size), output_keep_prob = self.args.keep_prob)])
-                char_rnn_b = MultiRNNCell(
-                    cells = [DropoutWrapper(cell(char_hidden_size), output_keep_prob = self.args.keep_prob)])
+                q_char_embed = tf.nn.dropout(q_char_embed, keep_prob = self.args.keep_prob)
+                d_char_embed = tf.nn.dropout(d_char_embed, keep_prob = self.args.keep_prob)
+                with tf.variable_scope('char_conv', reuse = tf.AUTO_REUSE) as scp:
 
-                d_char_embed_out, _ = tf.nn.bidirectional_dynamic_rnn(cell_fw = char_rnn_f, cell_bw = char_rnn_b, inputs = d_char_embed,
-                                                                      sequence_length = d_real_len, initial_state_bw = None,
-                                                                      dtype = "float32", parallel_iterations = None,
-                                                                      swap_memory = True, time_major = False, scope = 'char_rnn')
-                q_char_embed_out, _ = tf.nn.bidirectional_dynamic_rnn(cell_fw = char_rnn_f, cell_bw = char_rnn_b, inputs = q_char_embed,
-                                                                      sequence_length = q_real_len, initial_state_bw = None,
-                                                                      dtype = "float32", parallel_iterations = None,
-                                                                      swap_memory = True, time_major = False, scope = 'char_rnn')
+                    q_char_embed = tf.transpose(q_char_embed, perm = [0, 2, 3, 1])  # [batch, height, width, channels]
+                    filter = tf.get_variable('q_filter_w',
+                                             shape = [5, 5, self.q_len,
+                                                      self.q_len])  # [filter_height, filter_width, in_channels, out_channels]
+                    cnned_char = tf.nn.conv2d(q_char_embed, filter, strides = [1, 1, 1, 1], padding = 'VALID', use_cudnn_on_gpu = True,
+                                              data_format = "NHWC",
+                                              name = None)  # [B, (char_len-filter_size/stride), (word_len-filter_size/stride), d_len]
+
+                    q_char_embed_out = tf.nn.max_pool(cnned_char, ksize = [1, 5, 5, 1], strides = [1, 1, 1, 1], padding = 'VALID',
+                                                      data_format = "NHWC",
+                                                      name = None)
+
+                    char_out_size = q_char_embed_out.get_shape().as_list()[1] * q_char_embed_out.get_shape().as_list()[2]
+                    q_char_embed_out = tf.reshape(tf.transpose(q_char_embed_out, perm = [0, 3, 1, 2]), shape = [batch_size, self.q_len, char_out_size])
+
+                    d_char_embed = tf.transpose(d_char_embed, perm = [0, 2, 3, 1])  # [batch, height, width, channels]
+                    filter = tf.get_variable('d_filter_w',
+                                             shape = [5, 5, self.d_len,
+                                                      self.d_len])  # [filter_height, filter_width, in_channels, out_channels]
+                    cnned_char = tf.nn.conv2d(d_char_embed, filter, strides = [1, 1, 1, 1], padding = 'VALID', use_cudnn_on_gpu = True,
+                                              data_format = "NHWC",
+                                              name = None)  # [B, (char_len-filter_size/stride), (word_len-filter_size/stride), d_len]
+
+                    d_char_embed_out = tf.nn.max_pool(cnned_char, ksize = [1, 5, 5, 1], strides = [1, 1, 1, 1], padding = 'VALID', data_format = "NHWC",
+                                                      name = None)
+                    char_out_size = d_char_embed_out.get_shape().as_list()[1] * d_char_embed_out.get_shape().as_list()[2]
+                    d_char_embed_out = tf.reshape(tf.transpose(d_char_embed_out, perm = [0, 3, 1, 2]),
+                                                  shape = [batch_size, self.d_len, char_out_size])
+
+                    d_char_embed_out = tf.reshape(d_char_embed_out, shape = [batch_size, self.d_len, char_out_size])
 
                 d_char_out = tf.concat(d_char_embed_out, -1)
                 q_char_out = tf.concat(q_char_embed_out, -1)
@@ -131,14 +167,13 @@ class BiDAF(RcBase):
             dq_dot = tf.squeeze(tf.tensordot(dq_dot, ctq_w, axes = ((-1,), (0,))), axis = -1)
             dq_dot_softmax = self.softmax_with_mask(logits = dq_dot, axis = 2,
                                                     mask = tf.tile(tf.expand_dims(q_mask, axis = 1), [1, self.d_len, 1]))  # Q * B
-            U_hat = tf.nn.dropout(tf.einsum("bij,bjk->bik", dq_dot_softmax, q_emb_bi), keep_prob = se.args.keep_prob)  # B * D * hidden*2
+            U_hat = tf.einsum("bij,bjk->bik", dq_dot_softmax, q_emb_bi) # B * D * hidden*2
             # U_hat = tf.transpose(U_hat, [1, 0, 2])
             max_atten = self.softmax_with_mask(tf.reduce_max(dq_dot, axis = -1), mask = d_mask, axis = -1)  # B * D
             H_hat = tf.tile(tf.expand_dims(tf.reduce_sum(tf.multiply(tf.expand_dims(max_atten, axis = -1), d_emb_bi), 1), axis = 1),
                             [1, self.d_len, 1])  # B * D * hidden*2,
 
-            G_belta = tf.nn.dropout(tf.concat([d_emb_bi, U_hat, d_emb_bi * U_hat, d_emb_bi * H_hat], axis = -1),
-                                    keep_prob = self.args.keep_prob)
+            G_belta = tf.concat([d_emb_bi, U_hat, d_emb_bi * U_hat, d_emb_bi * H_hat], axis = -1)
 
         with tf.variable_scope('model_layer') as scp:
             model_cell_f = MultiRNNCell(

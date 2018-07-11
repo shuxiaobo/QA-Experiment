@@ -125,9 +125,11 @@ class NLPBase(object):
         group3.add_argument("--use_char_embedding", default=True, type=str2bool,
                             help="use character embedding or not")
 
-        group3.add_argument("--char_embedding_dim", default=20, type=int, help="dimension of char embeddings")
+        group3.add_argument("--char_embedding_dim", default=30, type=int, help="dimension of char embeddings")
 
         group3.add_argument("--char_hidden_size", default = 10, type=int, help="dimension of char embedding hidden size")
+
+        group3.add_argument("--max_char_len", default = 20, type=int, help="the max char length of words")
 
         group3.add_argument("--embedding_dim", default=300, type=int, help="dimension of word embeddings")
 
